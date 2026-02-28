@@ -30,6 +30,7 @@ _LEGACY_ACCOUNT = DATA_DIR / ".account.json"
 _LEGACY_VAULT = DATA_DIR / ".vault.json"
 
 _current_user: str = ""  # set on login
+_session_token: str = ""  # set on login, validated on all /api/ requests
 _failed_attempts: dict = {}  # {username: (count, last_fail_time)}
 
 def _acct_path(username: str) -> Path:
@@ -973,13 +974,13 @@ function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style
   api('/api/account/status').then(d=>populateLogin(d.users||[]));}
 function onUserPick(){E('login-err').textContent='';}
 function logout(){E('lock-screen').classList.remove('hidden');E('login-pass').value='';E('login-err').textContent='';checkAccount();}
-async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
+async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<8){E('setup-err').textContent='Password must be at least 8 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
 async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent=d.error||'Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
-async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
+async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<8){toast('Min 8 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
 function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
 function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
-async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=getLoginUser();if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
-async function nukeAccount(){const d=await api('/api/account/nuke',{method:'POST'});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
+async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=getLoginUser();if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<8){E('forgot-err').textContent='New password must be at least 8 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
+async function nukeAccount(){const pw=prompt('Enter your password to permanently delete your account:');if(!pw)return;const d=await api('/api/account/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
 
 async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
   const bioOk=!!(window.PublicKeyCredential&&navigator.credentials?.create);
@@ -1023,6 +1024,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-XSS-Protection", "1; mode=block")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'")
+
+    def _check_session(self) -> bool:
+        """Validate session cookie. Returns False and sends 401 if invalid."""
+        cookie = self.headers.get("Cookie", "")
+        token = ""
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith("session="):
+                token = part[8:]
+                break
+        if not token or not _session_token or not _hmac.compare_digest(token, _session_token):
+            self._json({"error": "Not authenticated"}, 401)
+            return False
+        return True
+
+    def _set_session_cookie(self):
+        """Generate new session token and queue cookie for next response."""
+        global _session_token
+        _session_token = secrets.token_urlsafe(32)
+        self._pending_session_cookie = _session_token
 
     def _json(self, data: dict, code: int = 200) -> None:
         body = json.dumps(data).encode()
@@ -1030,6 +1052,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self._sec_headers()
+        if getattr(self, "_pending_session_cookie", None):
+            self.send_header("Set-Cookie", f"session={self._pending_session_cookie}; HttpOnly; SameSite=Strict; Path=/")
+            self._pending_session_cookie = None
         self.end_headers()
         self.wfile.write(body)
 
@@ -1064,10 +1089,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length", 0))
+        if length > 10_485_760:  # 10MB cap
+            self._json({"error": "Request body too large"}, 413)
+            return b""
         return self.rfile.read(length) if length else b""
+
+    # Endpoints that don't require a session
+    _PUBLIC_PATHS = {"/", "/api/account/create", "/api/account/verify", "/api/account/recover",
+                     "/api/account/status", "/api/account/users", "/api/webauthn/auth-challenge",
+                     "/api/webauthn/auth", "/api/vault/strength", "/stop"}
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
+        if path not in self._PUBLIC_PATHS and path.startswith("/api/"):
+            if not self._check_session():
+                return
 
         if path == "/":
             self._html(HTML)
@@ -1172,6 +1208,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         global _current_user
         path = self.path.split("?")[0]
+        if path not in self._PUBLIC_PATHS and path.startswith("/api/"):
+            if not self._check_session():
+                return
         body = self._read_body()
 
         if path == "/api/account/create":
@@ -1188,19 +1227,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Username already taken"}, 400)
                 return
             passkey = data.get("passkey", "")
-            if len(passkey) < 4:
-                self._json({"error": "Passkey too short"}, 400)
+            if len(passkey) < 8:
+                self._json({"error": "Password must be at least 8 characters"}, 400)
                 return
             _current_user = username
             check_blob = _encrypt("check_please_ok", passkey)
             recovery_key = "-".join(secrets.token_hex(2).upper() for _ in range(4))
-            recovery_hash = hashlib.sha256(recovery_key.encode()).hexdigest()
+            recovery_salt = secrets.token_bytes(16)
+            recovery_hash = hashlib.pbkdf2_hmac("sha256", recovery_key.encode(), recovery_salt, 200_000).hex()
             _save_account({
                 "name": username,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "check": check_blob,
                 "recovery_hash": recovery_hash,
+                "recovery_salt": recovery_salt.hex(),
             })
+            self._set_session_cookie()
             self._json({"ok": True, "recovery_key": recovery_key})
         elif path == "/api/account/verify":
             try:
@@ -1217,6 +1259,7 @@ class Handler(BaseHTTPRequestHandler):
             if ok:
                 _current_user = username
                 _clear_fails(username)
+                self._set_session_cookie()
             else:
                 _record_fail(username)
             self._json({"ok": ok})
@@ -1249,24 +1292,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "No account exists"}, 400)
                 return
             key = data.get("recovery_key", "")
-            key_hash = hashlib.sha256(key.encode()).hexdigest()
+            stored_salt = acct.get("recovery_salt", "")
+            if stored_salt:
+                key_hash = hashlib.pbkdf2_hmac("sha256", key.encode(), bytes.fromhex(stored_salt), 200_000).hex()
+            else:
+                key_hash = hashlib.sha256(key.encode()).hexdigest()  # legacy fallback
             if key_hash != acct.get("recovery_hash", ""):
                 self._json({"error": "Invalid recovery key"}, 403)
                 return
             new_pw = data.get("new_passkey", "")
-            if len(new_pw) < 4:
-                self._json({"error": "Password too short"}, 400)
+            if len(new_pw) < 8:
+                self._json({"error": "Password must be at least 8 characters"}, 400)
                 return
             acct["check"] = _encrypt("check_please_ok", new_pw)
             _save_account(acct, username)
             self._json({"ok": True})
         elif path == "/api/account/nuke":
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
             if _current_user:
+                if not _verify_passkey(data.get("passkey", "")):
+                    self._json({"error": "Password required to delete account"}, 403)
+                    return
                 ap = _acct_path(_current_user)
                 vp = _vault_path(_current_user)
                 if ap.is_file(): ap.unlink()
                 if vp.is_file(): vp.unlink()
                 _current_user = ""
+                _session_token = ""
             # Also clean legacy files
             if _LEGACY_ACCOUNT.is_file(): _LEGACY_ACCOUNT.unlink()
             if _LEGACY_VAULT.is_file(): _LEGACY_VAULT.unlink()
@@ -1322,6 +1377,7 @@ class Handler(BaseHTTPRequestHandler):
             if acct and acct.get("name"):
                 _current_user = acct["name"]
                 _save_account(acct)
+                self._set_session_cookie()
             # Restore vault
             vault = payload.get("vault", [])
             if vault:
@@ -1361,7 +1417,11 @@ class Handler(BaseHTTPRequestHandler):
             _save_account(acct)
             cred_id = data.get("credential_id", "")
             known_ids = [c["id"] for c in acct.get("webauthn_credentials", [])]
-            self._json({"ok": cred_id in known_ids})
+            ok = cred_id in known_ids
+            if ok:
+                _current_user = acct.get("name", "")
+                self._set_session_cookie()
+            self._json({"ok": ok})
         elif path == "/api/webauthn/remove":
             acct = _load_account()
             if acct:
@@ -1538,6 +1598,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         path = self.path.split("?")[0]
+        if not self._check_session():
+            return
         if path.startswith("/api/vault/"):
             entry_id = path.split("/")[-1]
             entries = _load_vault()

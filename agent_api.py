@@ -243,6 +243,9 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(body)
 
@@ -251,6 +254,9 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
 
         def _read_body(self) -> bytes:
             length = int(self.headers.get("Content-Length", 0))
+            if length > 10_485_760:  # 10MB cap
+                self._json_response(413, {"error": "Request body too large"})
+                return b""
             return self.rfile.read(length) if length else b""
 
         def do_GET(self):

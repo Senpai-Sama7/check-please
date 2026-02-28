@@ -26,9 +26,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "httpx>=0.27",
-    "rich>=13.0",
-    "python-dotenv>=1.0",
+    "httpx>=0.27,<1.0",
+    "rich>=13.0,<15.0",
+    "python-dotenv>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]

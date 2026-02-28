@@ -28,3 +28,4 @@ build/
 .check_please_name
 .check_please_agent_permissions.json
 agent_access.log
+agent_usage.log
