@@ -30,6 +30,7 @@ _LEGACY_ACCOUNT = DATA_DIR / ".account.json"
 _LEGACY_VAULT = DATA_DIR / ".vault.json"
 
 _current_user: str = ""  # set on login
+_failed_attempts: dict = {}  # {username: (count, last_fail_time)}
 
 def _acct_path(username: str) -> Path:
     ACCOUNTS_DIR.mkdir(exist_ok=True)
@@ -112,6 +113,8 @@ def _decrypt(blob: dict, passkey: str) -> str | None:
         salt = bytes.fromhex(blob["salt"])
         ct = bytes.fromhex(blob["ct"])
         key = _derive_key(passkey, salt)
+        if not _hmac.compare_digest(_hmac.new(key, ct, "sha256").hexdigest(), blob.get("mac", "")):
+            return None
         stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(ct))
         return bytes(a ^ b for a, b in zip(ct, stream)).decode()
     except Exception:
@@ -134,6 +137,23 @@ def _save_account(data: dict, username: str | None = None) -> None:
     p = _acct_path(name)
     p.write_text(json.dumps(data, indent=2))
     os.chmod(p, 0o600)
+
+def _check_rate_limit(username: str) -> float:
+    """Return seconds to wait, or 0 if allowed."""
+    info = _failed_attempts.get(username)
+    if not info:
+        return 0
+    count, last = info
+    delay = min(2 ** (count - 1), 30)  # 1s, 2s, 4s, 8s, 16s, 30s cap
+    elapsed = time.time() - last
+    return max(0, delay - elapsed)
+
+def _record_fail(username: str):
+    count = _failed_attempts.get(username, (0, 0))[0]
+    _failed_attempts[username] = (count + 1, time.time())
+
+def _clear_fails(username: str):
+    _failed_attempts.pop(username, None)
 
 def _verify_passkey(passkey: str, username: str | None = None) -> bool:
     acct = _load_account(username)
@@ -954,7 +974,7 @@ function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style
 function onUserPick(){E('login-err').textContent='';}
 function logout(){E('lock-screen').classList.remove('hidden');E('login-pass').value='';E('login-err').textContent='';checkAccount();}
 async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
-async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
+async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent=d.error||'Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
 function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
 function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
@@ -970,7 +990,7 @@ async function loadAccountSettings(){const d=await api('/api/account/status');if
 function bufToB64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
 function b64ToBuf(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;}
 async function registerBiometric(){if(!window.PublicKeyCredential||!navigator.credentials?.create){E('bio-unsupported').style.display='block';toast('Biometrics not available — open in a browser instead','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:'localhost'},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
-async function biometricAuth(){if(!window.PublicKeyCredential){toast('Not supported','error');return;}try{const ch=await api('/api/webauthn/auth-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.get({publicKey:{challenge:b64ToBuf(ch.challenge),allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal','hybrid','ble']})),userVerification:'required',timeout:60000}});const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(!d.ok){toast('Verification failed','error');return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
+async function biometricAuth(){if(!window.PublicKeyCredential){window.open('http://localhost:8457','_blank');toast('Opening browser for biometric auth','info');return;}try{const ch=await api('/api/webauthn/auth-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.get({publicKey:{challenge:b64ToBuf(ch.challenge),allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal','hybrid','ble']})),userVerification:'required',timeout:60000}});const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(!d.ok){toast('Verification failed','error');return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
 async function removeBiometric(){if(!confirm('Remove biometric unlock?'))return;await api('/api/webauthn/remove',{method:'POST'});toast('Removed','success');loadAccountSettings();}
 
 // ── Tour ──
@@ -998,11 +1018,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_a: object) -> None:
         pass
 
+    def _sec_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-XSS-Protection", "1; mode=block")
+
     def _json(self, data: dict, code: int = 200) -> None:
         body = json.dumps(data).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self._sec_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1011,6 +1038,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._sec_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1020,6 +1048,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/csv")
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
+        self._sec_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1180,9 +1209,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             username = data.get("username", "") or (_list_users() or [""])[0]
+            wait = _check_rate_limit(username)
+            if wait > 0:
+                self._json({"ok": False, "error": f"Too many attempts. Try again in {int(wait)+1}s."}, 429)
+                return
             ok = _verify_passkey(data.get("passkey", ""), username)
             if ok:
                 _current_user = username
+                _clear_fails(username)
+            else:
+                _record_fail(username)
             self._json({"ok": ok})
         elif path == "/api/account/change-passkey":
             try:
