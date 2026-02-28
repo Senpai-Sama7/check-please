@@ -36,9 +36,13 @@ for arg in "$@"; do
     esac
 done
 
-# Default to easy mode for new users (no args at all)
+# Default mode: first run → guide, subsequent → easy
 if [[ -z "$MODE" && ${#EXTRA_ARGS[@]} -eq 0 && "$DRY_RUN" == "false" && "$SHOW_HELP" == "false" ]]; then
-    MODE="easy"
+    if [[ ! -f "$DIR/.check_please_seen" ]]; then
+        MODE="guide"
+    else
+        MODE="easy"
+    fi
 fi
 
 if $SHOW_HELP; then
@@ -70,7 +74,7 @@ warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$1"; }
 
 # ── Step 1: Verify Python ─────────────────────────────────────
 step=$((step+1))
-info "Checking Python 3..."
+info "Making sure everything is ready..."
 PYTHON=""
 for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
@@ -88,7 +92,7 @@ ok "Found $PYTHON ($($PYTHON --version 2>&1))"
 
 # ── Step 2: Create / verify venv ──────────────────────────────
 step=$((step+1))
-info "Setting up virtual environment..."
+info "Setting things up (one-time setup)..."
 if [[ ! -d "$VENV" ]]; then
     "$PYTHON" -m venv "$VENV" || fail "Could not create venv at $VENV"
     ok "Created venv"
@@ -106,7 +110,7 @@ source "$VENV/bin/activate" || fail "Could not activate venv"
 
 # ── Step 3: Install dependencies ──────────────────────────────
 step=$((step+1))
-info "Installing dependencies..."
+info "Installing what we need..."
 pip install --quiet --upgrade pip 2>/dev/null || true
 
 REQS="$DIR/credential_auditor/requirements.txt"
@@ -116,44 +120,47 @@ else
     warn "No requirements.txt found — installing defaults"
     pip install --quiet httpx rich python-dotenv || fail "pip install failed"
 fi
-if $TUI_MODE; then
+if [[ "$MODE" == "tui" ]]; then
     pip install --quiet textual 2>/dev/null || fail "pip install textual failed"
 fi
 ok "Dependencies installed"
 
 # ── Step 4: Verify .env exists ────────────────────────────────
 step=$((step+1))
-info "Checking for .env file..."
+info "Looking for your API keys..."
 if [[ ! -f "$ENV_FILE" ]]; then
-    fail ".env not found at $ENV_FILE"
+    fail "No .env file found — put your API keys in a file called .env in this folder"
 fi
 line_count=$(wc -l < "$ENV_FILE")
-ok ".env found ($line_count lines)"
+ok "Found your .env file ($line_count lines)"
+
+# Mark first run complete
+touch "$DIR/.check_please_seen"
 
 # ── Mode dispatch: easy/simple/web/tui/guide ──────────────────
 case "$MODE" in
     easy)
-        ok "Launching Easy Mode..."
+        echo ""
         python "$DIR/easy_mode.py"
         exit 0
         ;;
     simple)
-        ok "Launching Simple Menu..."
+        echo ""
         python "$DIR/simple_cli.py"
         exit 0
         ;;
     web)
-        ok "Launching Web Interface..."
+        echo ""
         python "$DIR/simple_web.py"
         exit 0
         ;;
     tui)
-        ok "Launching TUI..."
+        echo ""
         python "$DIR/tui.py"
         exit 0
         ;;
     guide)
-        ok "Launching Quick Start Guide..."
+        echo ""
         python "$DIR/quick_start_guide.py"
         exit 0
         ;;

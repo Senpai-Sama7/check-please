@@ -48,6 +48,22 @@ header p{color:#9aa5ce;font-size:1.1em}
 .help-link:hover{text-decoration:underline}
 .spinner{display:none;border:3px solid #333;border-top:3px solid #3b82f6;border-radius:50%;width:24px;height:24px;animation:spin 1s linear infinite;margin:0 auto}
 @keyframes spin{to{transform:rotate(360deg)}}
+.loading-msg{display:none;text-align:center;color:#9aa5ce;margin:12px 0;font-size:.95em}
+.key-card{background:#16213e;border-radius:8px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;gap:12px;border-left:4px solid #333}
+.key-card.s-valid{border-left-color:#4ade80}.key-card.s-auth_failed{border-left-color:#f87171}
+.key-card.s-network_error{border-left-color:#fbbf24}.key-card.s-quota_exhausted{border-left-color:#fbbf24}
+.key-card.s-suspended_account{border-left-color:#f87171}.key-card.s-insufficient_scope{border-left-color:#fbbf24}
+.key-card.s-invalid_format{border-left-color:#fb923c}
+.key-card .icon{font-size:1.3em;flex-shrink:0}
+.key-card .info{flex:1;min-width:0}
+.key-card .provider{font-weight:bold;text-transform:capitalize}
+.key-card .env-var{color:#9aa5ce;font-size:.85em}
+.key-card .status{font-size:.85em;padding:2px 8px;border-radius:4px;flex-shrink:0}
+.key-card .status.valid{background:#1a3a1a}.key-card .status.auth_failed{background:#3a1a1a}
+.key-card .status.network_error,.key-card .status.quota_exhausted,.key-card .status.insufficient_scope{background:#3a3a1a}
+.key-card .status.invalid_format{background:#3a2a1a}
+.tip-box{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:8px;padding:14px;margin-top:12px;font-size:.9em;line-height:1.6}
+.tip-box.warn{background:#2a2a1a;border-color:#4a4a2a}
 footer{text-align:center;padding:20px;color:#555;font-size:.85em;border-top:1px solid #222;margin-top:30px}
 </style>
 </head>
@@ -67,6 +83,7 @@ footer{text-align:center;padding:20px;color:#555;font-size:.85em;border-top:1px 
   <button class="btn btn-amber" onclick="runPreview()">Preview Only</button>
   <button class="btn btn-green" onclick="runSelfTest()">Self-Test</button>
   <div class="spinner" id="spinner"></div>
+  <div class="loading-msg" id="loading-msg">⏳ Checking your keys... this usually takes 10-30 seconds</div>
   <div id="status-bar" class="status-bar" style="display:none">
     <div class="stat"><div class="num" id="s-total">-</div><div class="label">Total</div></div>
     <div class="stat"><div class="num valid" id="s-valid">-</div><div class="label">Valid</div></div>
@@ -102,10 +119,11 @@ footer{text-align:center;padding:20px;color:#555;font-size:.85em;border-top:1px 
 </div>
 
 <script>
-async function api(path){
-  const r=document.getElementById('results');
+async function api(path,msg){
   const sp=document.getElementById('spinner');
+  const lm=document.getElementById('loading-msg');
   sp.style.display='block';
+  if(msg){lm.textContent=msg;lm.style.display='block';}
   document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
   try{
     const resp=await fetch(path);
@@ -113,14 +131,24 @@ async function api(path){
     return data;
   }finally{
     sp.style.display='none';
+    lm.style.display='none';
     document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
   }
 }
+const STATUS_INFO={
+  valid:{icon:'✅',label:'Valid',cls:'valid',tip:''},
+  auth_failed:{icon:'❌',label:'Failed',cls:'auth_failed',tip:'Log into this service and create a new key'},
+  network_error:{icon:'⚠️',label:'Network Error',cls:'network_error',tip:'Check your internet connection and try again'},
+  quota_exhausted:{icon:'⚠️',label:'Quota Used',cls:'quota_exhausted',tip:'Add credits or wait for your limit to reset'},
+  suspended_account:{icon:'🚫',label:'Suspended',cls:'suspended_account',tip:'Check your account status on this service'},
+  insufficient_scope:{icon:'⚠️',label:'Limited',cls:'insufficient_scope',tip:'This key is missing some permissions'},
+  invalid_format:{icon:'🔶',label:'Bad Format',cls:'invalid_format',tip:'The key doesn\'t match the expected pattern for this service'},
+};
 async function runAudit(){
-  const data=await api('/api/audit');
+  const data=await api('/api/audit','⏳ Checking your keys... this usually takes 10-30 seconds');
   const r=document.getElementById('results');
   r.style.display='block';
-  if(data.error){r.textContent='Error: '+data.error;return;}
+  if(data.error){r.innerHTML='<div class="tip-box warn">❌ '+data.error+'</div>';return;}
   const sb=document.getElementById('status-bar');
   sb.style.display='flex';
   const s=data.summary||{};
@@ -128,23 +156,39 @@ async function runAudit(){
   document.getElementById('s-valid').textContent=s.valid||0;
   document.getElementById('s-failed').textContent=s.failed||0;
   document.getElementById('s-providers').textContent=s.providers_checked||'-';
-  let txt='';
+  let html='';
+  let hasIssues=false;
   for(const k of data.results){
-    const icon=k.status==='valid'?'✅':k.status==='auth_failed'?'❌':'⚠️';
+    const si=STATUS_INFO[k.status]||{icon:'❓',label:k.status,cls:'',tip:''};
+    if(k.status!=='valid')hasIssues=true;
     const fp=k.key_fingerprint;
     const fpStr=fp.prefix?fp.prefix+'...'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
-    txt+=icon+' '+k.provider.padEnd(14)+k.env_var.padEnd(30)+k.status.padEnd(18)+fpStr+'\\n';
+    html+='<div class="key-card s-'+k.status+'">';
+    html+='<span class="icon">'+si.icon+'</span>';
+    html+='<div class="info"><div class="provider">'+k.provider+'</div><div class="env-var">'+k.env_var+' &middot; '+fpStr+'</div></div>';
+    html+='<span class="status '+k.status+'">'+si.label+'</span></div>';
   }
-  r.textContent=txt;
+  if(!hasIssues){
+    html+='<div class="tip-box">🎉 All your keys are valid! Everything looks good.</div>';
+  }else{
+    html+='<div class="tip-box warn"><strong>What to do about failed keys:</strong><br>';
+    const seen=new Set();
+    for(const k of data.results){
+      const si=STATUS_INFO[k.status];
+      if(si&&si.tip&&!seen.has(k.status)){seen.add(k.status);html+=si.icon+' <strong>'+si.label+'</strong>: '+si.tip+'<br>';}
+    }
+    html+='</div>';
+  }
+  r.innerHTML=html;
 }
 async function runPreview(){
-  const data=await api('/api/preview');
+  const data=await api('/api/preview','👀 Loading preview...');
   const r=document.getElementById('results');
   r.style.display='block';
   r.textContent=data.output||data.error||'No output';
 }
 async function runSelfTest(){
-  const data=await api('/api/self-test');
+  const data=await api('/api/self-test','🧪 Running self-test...');
   const r=document.getElementById('results');
   r.style.display='block';
   r.textContent=data.output||data.error||'No output';

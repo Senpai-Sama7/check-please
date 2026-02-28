@@ -89,38 +89,24 @@ def run() -> int:
 
     # Step 4: Launch
     _step(4, 4, "Ready to Go!")
-    print(f"  You're all set, {name}! Here's how to start:\n")
-    cmds = {
-        "easy": "./start.sh --easy",
-        "simple": "./start.sh --simple",
-        "web": "./start.sh --web",
-        "tui": "./start.sh --tui",
-        "cli": "./start.sh",
-    }
-    print(f"    👉  {cmds[mode]}\n")
-    print("  Other useful commands:")
-    print("    ./start.sh --help       — See all options")
-    print("    python help_system.py   — Read help topics")
-    print("    ./start.sh --easy       — Guided mode anytime\n")
-
-    launch = input(f"  Launch {labels[mode]} now? (y/n, default y): ").strip().lower() or "y"
-    if launch in ("y", "yes"):
-        print()
-        if mode == "easy":
-            from easy_mode import run as easy_run
-            return easy_run()
-        elif mode == "simple":
-            from simple_cli import run as simple_run
-            return simple_run()
-        elif mode == "web":
-            from simple_web import run as web_run
-            return web_run()
-        else:
-            import subprocess
-            return subprocess.run(cmds[mode].split(), cwd=str(DIR)).returncode
-
-    print(f"\n  👋 See you later, {name}! Run the command above when you're ready.\n")
-    return 0
+    print(f"  You're all set, {name}! Launching {labels[mode]}...\n")
+    print("  Tip: Next time, just run  ./start.sh  to jump straight in.")
+    print("  Other modes:  ./start.sh --simple  |  --web  |  --tui\n")
+    _pause("Press Enter to launch...")
+    print()
+    if mode == "easy":
+        from easy_mode import run as easy_run
+        return easy_run()
+    elif mode == "simple":
+        from simple_cli import run as simple_run
+        return simple_run()
+    elif mode == "web":
+        from simple_web import run as web_run
+        return web_run()
+    else:
+        import subprocess
+        cmds = {"tui": "./start.sh --tui", "cli": "./start.sh"}
+        return subprocess.run(cmds[mode].split(), cwd=str(DIR)).returncode
 
 
 def main() -> int:

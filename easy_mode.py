@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
+_NAME_FILE = DIR / ".check_please_name"
 
 
 def _clear():
@@ -47,42 +48,36 @@ def _banner():
 
 def _find_env() -> Path | None:
     """Look for .env in common locations."""
-    candidates = [DIR / ".env", Path.cwd() / ".env", Path.home() / ".env"]
-    for p in candidates:
+    for p in [DIR / ".env", Path.cwd() / ".env", Path.home() / ".env"]:
         if p.is_file():
             return p
     return None
 
 
+def _get_name() -> str:
+    """Get name — remembered from last run."""
+    if _NAME_FILE.is_file():
+        return _NAME_FILE.read_text().strip() or "friend"
+    name = _ask("What's your name? (or press Enter to skip):", default="friend")
+    if name != "friend":
+        _NAME_FILE.write_text(name)
+    return name
+
+
 def run() -> int:
     _banner()
 
-    # Welcome
-    name = _ask("What's your name? (or press Enter to skip):", default="friend")
-    print(f"\n  👋 Hi {name}! Let's check your API keys.\n")
-    print("  This tool reads your .env file and checks if your API keys")
-    print("  still work. It's safe — your keys never leave your computer")
-    print("  (except to verify with the real service).\n")
+    name = _get_name()
+    print(f"  👋 Hi {name}! Let's check your API keys.\n")
 
-    # Experience level
-    print("  How comfortable are you with command-line tools?\n")
-    level = _ask("Pick one:", ["Beginner — I'm new to this", "Intermediate — I know the basics", "Advanced — I'm comfortable"])
-    is_beginner = "Beginner" in level
-    print()
-
-    # Find .env
+    # Find .env automatically — no confirmation needed
     env_path = _find_env()
     if env_path:
-        print(f"  ✅ Found your .env file: {env_path}")
-        use_it = _ask("Use this file? (y/n):", default="y")
-        if use_it.lower() not in ("y", "yes"):
-            env_path = None
-
-    if not env_path:
-        print("\n  📄 Where is your .env file?")
-        print("     (This is the file that contains your API keys)")
-        if is_beginner:
-            print("     It's usually in your project folder, named exactly '.env'\n")
+        count = sum(1 for l in env_path.read_text().splitlines() if "=" in l and not l.strip().startswith("#"))
+        print(f"  ✅ Found {count} keys in {env_path.name}\n")
+    else:
+        print("  📄 Where is your .env file?")
+        print("     (This is the file with your API keys, one per line)\n")
         while True:
             raw = _ask("Path to .env file (or 'q' to quit):")
             if raw.lower() in ("q", "quit"):
@@ -92,32 +87,22 @@ def run() -> int:
             if p.is_file():
                 env_path = p
                 break
-            print(f"    Couldn't find a file at: {raw}")
-            print("    Make sure you typed the full path.\n")
+            print(f"    Couldn't find a file at: {raw}\n")
 
-    # What to do
-    print(f"\n  Great! We'll check the keys in: {env_path}\n")
-    print("  What would you like to do?\n")
-    action = _ask("Pick one:", [
-        "Check my keys — see which ones work and which don't",
-        "Preview only — show what would be checked (no network calls)",
-        "Open help — learn more about this tool",
+    # Single decision: what to do
+    action = _ask("What would you like to do?\n", [
+        "🔍 Check my keys — see which ones work",
+        "👀 Preview only — no network calls",
+        "📚 Help — learn about API keys and security",
     ])
 
-    if "help" in action.lower():
+    if "Help" in action:
         from help_system import interactive
         interactive()
         return 0
 
     dry = "Preview" in action
-    print()
-
-    # Run
-    if is_beginner:
-        print("  ⏳ Contacting services to verify your keys...")
-        print("     This usually takes 10-30 seconds.\n")
-    else:
-        print("  ⏳ Running audit...\n")
+    print("\n  ⏳ Checking your keys... this usually takes 10-30 seconds.\n" if not dry else "")
 
     cmd = [sys.executable, "-m", "credential_auditor", "--env", str(env_path), "--timeout", "30"]
     if dry:
@@ -125,26 +110,21 @@ def run() -> int:
 
     result = subprocess.run(cmd, cwd=str(DIR))
 
+    # Clear, actionable result message
     print()
     if result.returncode == 0:
         print("  🎉 All your keys are valid! Everything looks good.")
     elif result.returncode == 1:
-        print("  ⚠️  Some keys have issues — check the results above.")
-        if is_beginner:
-            print("     Keys marked 'auth_failed' need to be replaced.")
-            print("     Log into that service's website and create a new key.")
+        print("  ⚠️  Some keys have issues — here's what to do:")
+        print("     • Keys marked 'auth_failed' → log into that service and create a new key")
+        print("     • Keys marked 'network_error' → check your internet and try again")
+        print("     • Keys marked 'quota_exhausted' → add credits or wait for limit reset")
     else:
-        print("  😕 Something went wrong. Check the messages above.")
-        print("     For help, run: python help_system.py")
+        print("  😕 Something went wrong. Run  python help_system.py  for troubleshooting.")
 
-    # Next steps
+    # Quick next-step menu
     print(f"\n  What next, {name}?\n")
-    nxt = _ask("Pick one:", [
-        "Run again",
-        "Open help topics",
-        "Try the simple menu interface",
-        "Quit",
-    ])
+    nxt = _ask("Pick one:", ["Run again", "Open help topics", "Try the simple menu", "Quit"])
     if "again" in nxt.lower():
         return run()
     if "help" in nxt.lower():
@@ -154,7 +134,7 @@ def run() -> int:
         from simple_cli import run as simple_run
         return simple_run()
 
-    print(f"\n  👋 Bye {name}! Run  ./start.sh --easy  anytime to come back.\n")
+    print(f"\n  👋 Bye {name}! Run  ./start.sh  anytime to come back.\n")
     return 0
 
 

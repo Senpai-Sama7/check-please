@@ -21,3 +21,5 @@ audit.log
 dist/
 *.egg-info/
 build/
+.check_please_seen
+.check_please_name
