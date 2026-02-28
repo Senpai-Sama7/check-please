@@ -109,6 +109,9 @@ class DashboardScreen(Screen):
         table.add_columns("Provider", "Env Var", "Fingerprint", "Status", "Detail")
         self.action_refresh_dashboard()
 
+    def on_screen_resume(self) -> None:
+        self.action_refresh_dashboard()
+
     def action_refresh_dashboard(self) -> None:
         self._load_stats()
         self._load_results()
@@ -364,9 +367,24 @@ class ReportScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        pt = self.query_one("#report-provider-table", DataTable)
+        pt.cursor_type = "row"
+        pt.add_columns("Provider", "Total", "Valid", "Failed", "Errors")
+        st = self.query_one("#report-status-table", DataTable)
+        st.cursor_type = "row"
+        st.add_columns("Status", "Count", "Providers")
+        self._load_report()
+
+    def on_screen_resume(self) -> None:
         self._load_report()
 
     def _load_report(self) -> None:
+        pt = self.query_one("#report-provider-table", DataTable)
+        pt.clear()
+        st = self.query_one("#report-status-table", DataTable)
+        st.clear()
+        jlog = self.query_one("#report-json", Log)
+        jlog.clear()
         if not REPORT_PATH.exists():
             return
         try:
@@ -375,9 +393,6 @@ class ReportScreen(Screen):
             return
 
         # Provider table
-        pt = self.query_one("#report-provider-table", DataTable)
-        pt.cursor_type = "row"
-        pt.add_columns("Provider", "Total", "Valid", "Failed", "Errors")
         from collections import Counter
         providers: dict[str, Counter] = {}
         for r in data:
@@ -393,9 +408,6 @@ class ReportScreen(Screen):
             pt.add_row(p, str(total), str(valid), str(failed), str(errors))
 
         # Status table
-        st = self.query_one("#report-status-table", DataTable)
-        st.cursor_type = "row"
-        st.add_columns("Status", "Count", "Providers")
         status_groups: dict[str, list[str]] = {}
         for r in data:
             s = r.get("status", "?")
