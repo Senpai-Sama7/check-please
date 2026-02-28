@@ -30,8 +30,24 @@ def suppress_credential_logging() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def is_symlink_or_hardlink_attack(path: Path) -> bool:
+    """Detect symlink/hardlink attacks on output paths."""
+    if path.is_symlink():
+        return True
+    if path.exists():
+        # Hardlink check: resolved path differs from the path itself
+        try:
+            if path.resolve(strict=True) != path.absolute():
+                return True
+        except OSError:
+            return True
+    return False
+
+
 def check_output_permissions(path: Path, force: bool = False) -> bool:
-    """Return True if safe to write. Warns on world-readable files per spec."""
+    """Return True if safe to write. Refuses symlinks. Warns on world-readable."""
+    if is_symlink_or_hardlink_attack(path):
+        return False
     if not path.exists():
         parent = path.parent
         if parent.exists():

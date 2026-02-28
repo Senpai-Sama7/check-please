@@ -50,6 +50,10 @@ class AuditLog:
         """Append buffered entries to log file, rotating if oversized."""
         if not self._entries:
             return
+        # Refuse to write through symlinks
+        if self.path.is_symlink():
+            self._entries.clear()
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Rotate if log exceeds max size
         if self.path.exists() and self.path.stat().st_size > self.MAX_SIZE:

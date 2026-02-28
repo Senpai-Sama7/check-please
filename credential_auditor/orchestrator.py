@@ -84,12 +84,17 @@ async def audit(
     env_vars = dotenv_values(env_path)
 
     # Expose non-secret companion vars (e.g. TWILIO_ACCOUNT_SID) so providers can read them
+    # Track injected vars for cleanup
+    _injected_env: list[str] = []
     for var, value in env_vars.items():
         if var and value and not any(s in var.upper() for s in ("SECRET", "TOKEN", "PASSWORD", "KEY", "AUTH")):
-            os.environ.setdefault(var, value)
+            if var not in os.environ:
+                os.environ[var] = value
+                _injected_env.append(var)
     for var in ("TWILIO_ACCOUNT_SID",):
         if var in env_vars and env_vars[var]:
             os.environ[var] = env_vars[var]
+            _injected_env.append(var)
 
     # Match env vars to providers — with auto-detection fallback
     tasks: list[tuple[str, str, Provider]] = []
@@ -144,7 +149,7 @@ async def audit(
         async with sem:
             return await inst.check_key(var, key, client)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
         coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
         raw = await asyncio.gather(*coros, return_exceptions=True)
 
@@ -204,6 +209,10 @@ async def audit(
     alog.log("audit_end", detail=f"{len(results)} keys, {valid_count} valid, "
              f"{len(skipped_providers)} providers bailed")
     alog.flush()
+
+    # Clean up injected env vars to prevent pollution
+    for var in _injected_env:
+        os.environ.pop(var, None)
 
     out = AuditResults(results)
     out.summary = summary

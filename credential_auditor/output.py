@@ -61,10 +61,14 @@ def write_json(
     """Write canonical JSON output. Returns True on success."""
     console = console or Console(stderr=True)
     if not check_output_permissions(path, force=force_insecure):
-        console.print(
-            f"[red]Refusing to write to {path} — world-readable. "
-            f"Use --force-insecure-output to override.[/red]"
-        )
+        from credential_auditor.security import is_symlink_or_hardlink_attack
+        if is_symlink_or_hardlink_attack(path):
+            console.print(f"[red]Refusing to write to {path} — symlink detected.[/red]")
+        else:
+            console.print(
+                f"[red]Refusing to write to {path} — world-readable. "
+                f"Use --force-insecure-output to override.[/red]"
+            )
         return False
     payload: dict | list = [r.to_dict(redaction_level) for r in results]
     if summary:

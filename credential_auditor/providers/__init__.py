@@ -101,9 +101,14 @@ class Provider(ABC):
         )
 
 
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB — reject oversized responses
+
+
 def _safe_json(resp: httpx.Response) -> dict:
     """Parse JSON response body, returning empty dict on failure."""
     try:
+        if len(resp.content) > _MAX_RESPONSE_BYTES:
+            return {}
         if resp.headers.get("content-type", "").startswith("application/json"):
             return resp.json()
     except (ValueError, KeyError):
