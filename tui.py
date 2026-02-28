@@ -172,7 +172,7 @@ class DashboardScreen(Screen):
 
     @on(Button.Pressed, "#btn-audit")
     def on_audit_pressed(self) -> None:
-        self.app.action_go_audit()
+        self.app.switch_mode("audit")
 
     @on(Button.Pressed, "#btn-organize")
     def on_organize_pressed(self) -> None:
@@ -218,7 +218,7 @@ class AuditScreen(Screen):
 
     def action_go_back(self) -> None:
         if not self.is_running:
-            self.app.pop_screen()
+            self.app.switch_mode("dashboard")
 
     @on(Button.Pressed, "#btn-back")
     def on_back(self) -> None:
@@ -348,7 +348,7 @@ class ReportScreen(Screen):
     BINDINGS = [Binding("escape", "go_back", "Back", priority=True)]
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()
+        self.app.switch_mode("dashboard")
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -419,28 +419,20 @@ class CheckPleaseApp(App):
     SUB_TITLE = "credential audit pipeline"
     CSS_PATH = "tui.tcss"
 
+    MODES = {
+        "dashboard": DashboardScreen,
+        "audit": AuditScreen,
+        "report": ReportScreen,
+    }
+    DEFAULT_MODE = "dashboard"
+
     BINDINGS = [
-        Binding("d", "go_dashboard", "Dashboard", show=True),
-        Binding("a", "go_audit", "Audit", show=True),
-        Binding("p", "go_report", "Report", show=True),
+        Binding("d", "switch_mode('dashboard')", "Dashboard", show=True),
+        Binding("a", "switch_mode('audit')", "Audit", show=True),
+        Binding("p", "switch_mode('report')", "Report", show=True),
         Binding("q", "quit", "Quit", show=True),
         Binding("?", "toggle_help", "Help", show=True),
     ]
-
-    def on_mount(self) -> None:
-        self.push_screen(DashboardScreen())
-
-    def action_go_dashboard(self) -> None:
-        while len(self.screen_stack) > 2:
-            self.pop_screen()
-
-    def action_go_audit(self) -> None:
-        if not isinstance(self.screen, AuditScreen):
-            self.push_screen(AuditScreen())
-
-    def action_go_report(self) -> None:
-        if not isinstance(self.screen, ReportScreen):
-            self.push_screen(ReportScreen())
 
     def action_toggle_help(self) -> None:
         self.notify(
