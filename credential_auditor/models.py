@@ -71,6 +71,7 @@ class KeyResult:
     usage_stats: Optional[dict] = field(default=None, hash=False)
     latency_ms: float = 0.0
     error_detail: Optional[str] = None
+    auto_detected: bool = False
 
     def to_dict(self) -> dict:
         """Canonical field ordering per spec — INV-5."""
@@ -85,6 +86,7 @@ class KeyResult:
             "usage_stats": self.usage_stats,
             "latency_ms": round(self.latency_ms, 2),
             "error_detail": self.error_detail,
+            "auto_detected": self.auto_detected,
         }
 
 

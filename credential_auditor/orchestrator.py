@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -88,6 +89,7 @@ async def audit(
     # Match env vars to providers — with auto-detection fallback
     tasks: list[tuple[str, str, Provider]] = []
     auto_detected_count = 0
+    auto_detected_vars: set[str] = set()
     for var, value in env_vars.items():
         if not var or not value:
             continue
@@ -103,6 +105,7 @@ async def audit(
             if detected and detected.name in active:
                 tasks.append((var, str(value), detected))
                 auto_detected_count += 1
+                auto_detected_vars.add(var)
                 alog.log("auto_detect", provider=detected.name, env_var=var)
 
     if not tasks:
@@ -119,6 +122,8 @@ async def audit(
     for var, key, inst in tasks:
         hit = _cache.get(inst.name, key)
         if hit:
+            if var in auto_detected_vars:
+                hit = replace(hit, auto_detected=True)
             cached_results.append(hit)
             alog.log("cache_hit", provider=inst.name, env_var=var, status=hit.status)
         else:
@@ -158,6 +163,8 @@ async def audit(
         else:
             fail_counts[inst.name] = 0
 
+        if var in auto_detected_vars:
+            result = replace(result, auto_detected=True)
         alog.log("validate", provider=result.provider, env_var=result.env_var,
                  status=result.status, latency_ms=result.latency_ms)
         results.append(result)

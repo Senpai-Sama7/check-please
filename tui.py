@@ -27,6 +27,7 @@ from textual.widgets import (
     Header,
     Label,
     Log,
+    RichLog,
     ProgressBar,
     Rule,
     Static,
@@ -230,7 +231,7 @@ class AuditScreen(Screen):
             yield ProgressBar(id="audit-progress", total=100, show_eta=False)
             yield Rule()
             yield Label("  Live Output", classes="section-title")
-            yield Log(id="audit-log", auto_scroll=True, markup=True)
+            yield RichLog(id="audit-log", auto_scroll=True, markup=True)
         yield Footer()
 
     def on_screen_resume(self) -> None:
@@ -255,7 +256,7 @@ class AuditScreen(Screen):
     async def run_audit(self) -> None:
         self.is_running = True
         self.query_one("#btn-start", Button).disabled = True
-        log = self.query_one("#audit-log", Log)
+        log = self.query_one("#audit-log", RichLog)
         progress = self.query_one("#audit-progress", ProgressBar)
         status_label = self.query_one("#audit-status", Label)
         log.clear()

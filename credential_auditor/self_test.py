@@ -141,6 +141,7 @@ async def _test_inv5(console: Console) -> bool:
     expected_order = [
         "provider", "env_var", "key_fingerprint", "status", "account_info",
         "scopes", "rate_limit", "usage_stats", "latency_ms", "error_detail",
+        "auto_detected",
     ]
     actual_order = list(d.keys())
     # Run twice to confirm stability
