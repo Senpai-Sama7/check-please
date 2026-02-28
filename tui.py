@@ -233,6 +233,9 @@ class AuditScreen(Screen):
         log = self.query_one("#audit-log", Log)
         progress = self.query_one("#audit-progress", ProgressBar)
         status_label = self.query_one("#audit-status", Label)
+        log.clear()
+        progress.progress = 0
+        status_label.update("")
 
         try:
             from rich.console import Console as RichConsole
