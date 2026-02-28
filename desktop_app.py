@@ -6,6 +6,7 @@ import threading
 import time
 from pathlib import Path
 
+
 def main() -> int:
     try:
         import webview
@@ -19,8 +20,17 @@ def main() -> int:
     from simple_web import Handler, PORT
     from http.server import HTTPServer
 
+    # Kill any existing instance on our port
+    import subprocess
+    subprocess.run(["fuser", "-k", f"{PORT}/tcp"], capture_output=True)
+    time.sleep(0.5)
+
     # Start web server in background thread
-    server = HTTPServer(("localhost", PORT), Handler)
+    try:
+        server = HTTPServer(("localhost", PORT), Handler)
+    except OSError:
+        time.sleep(1)
+        server = HTTPServer(("localhost", PORT), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -34,7 +44,7 @@ def main() -> int:
         except Exception:
             time.sleep(0.1)
 
-    # Launch native window (force GTK backend — most reliable on Linux)
+    # Launch native window
     webview.create_window(
         "Check Please",
         url,
@@ -42,9 +52,13 @@ def main() -> int:
         height=800,
         min_size=(800, 600),
     )
-    webview.start(gui="gtk")
+    try:
+        webview.start(gui="gtk")
+    except Exception:
+        webview.start()
     server.shutdown()
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
