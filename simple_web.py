@@ -19,185 +19,223 @@ HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Check Please — API Key Auditor</title>
+<title>Check Please</title>
 <style>
+:root{--bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;--text:#fafafa;--text2:#a1a1aa;--accent:#6366f1;--accent2:#818cf8;--green:#22c55e;--green-bg:rgba(34,197,94,.1);--red:#ef4444;--red-bg:rgba(239,68,68,.1);--amber:#f59e0b;--amber-bg:rgba(245,158,11,.1);--radius:10px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f23;color:#e0e0e0;min-height:100vh}
-.container{max-width:800px;margin:0 auto;padding:20px}
-header{text-align:center;padding:30px 0;border-bottom:1px solid #333}
-header h1{font-size:2em;margin-bottom:8px}
-header p{color:#9aa5ce;font-size:1.1em}
-.badge{display:inline-block;background:#1a3a1a;color:#4ade80;padding:4px 12px;border-radius:12px;font-size:.85em;margin-top:8px}
-.card{background:#1a1a2e;border-radius:12px;padding:24px;margin:20px 0;border:1px solid #333}
-.card h2{margin-bottom:12px;font-size:1.3em}
-.card p{color:#9aa5ce;line-height:1.6;margin-bottom:16px}
-.btn{display:inline-block;padding:12px 28px;border-radius:8px;border:none;font-size:1em;cursor:pointer;text-decoration:none;color:#fff;margin:6px;transition:opacity .2s}
-.btn:hover{opacity:.85}
-.btn-primary{background:#3b82f6}
-.btn-green{background:#22c55e}
-.btn-amber{background:#f59e0b;color:#000}
-.btn-red{background:#ef4444}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.results{background:#0d1117;border-radius:8px;padding:16px;margin-top:16px;white-space:pre-wrap;font-family:'Fira Code',monospace;font-size:.9em;max-height:500px;overflow-y:auto;line-height:1.5}
-.status-bar{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}
-.stat{background:#16213e;padding:10px 16px;border-radius:8px;text-align:center;flex:1;min-width:100px}
-.stat .num{font-size:1.5em;font-weight:bold}
-.stat .label{font-size:.8em;color:#9aa5ce}
-.valid{color:#4ade80}.failed{color:#f87171}.warn{color:#fbbf24}
-.help-link{color:#60a5fa;text-decoration:none;font-size:.9em}
-.help-link:hover{text-decoration:underline}
-.spinner{display:none;border:3px solid #333;border-top:3px solid #3b82f6;border-radius:50%;width:24px;height:24px;animation:spin 1s linear infinite;margin:0 auto}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loading-msg{display:none;text-align:center;color:#9aa5ce;margin:12px 0;font-size:.95em}
-.key-card{background:#16213e;border-radius:8px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;gap:12px;border-left:4px solid #333}
-.key-card.s-valid{border-left-color:#4ade80}.key-card.s-auth_failed{border-left-color:#f87171}
-.key-card.s-network_error{border-left-color:#fbbf24}.key-card.s-quota_exhausted{border-left-color:#fbbf24}
-.key-card.s-suspended_account{border-left-color:#f87171}.key-card.s-insufficient_scope{border-left-color:#fbbf24}
-.key-card.s-invalid_format{border-left-color:#fb923c}
-.key-card .icon{font-size:1.3em;flex-shrink:0}
-.key-card .info{flex:1;min-width:0}
-.key-card .provider{font-weight:bold;text-transform:capitalize}
-.key-card .env-var{color:#9aa5ce;font-size:.85em}
-.key-card .status{font-size:.85em;padding:2px 8px;border-radius:4px;flex-shrink:0}
-.key-card .status.valid{background:#1a3a1a}.key-card .status.auth_failed{background:#3a1a1a}
-.key-card .status.network_error,.key-card .status.quota_exhausted,.key-card .status.insufficient_scope{background:#3a3a1a}
-.key-card .status.invalid_format{background:#3a2a1a}
-.tip-box{background:#1a2a1a;border:1px solid #2a4a2a;border-radius:8px;padding:14px;margin-top:12px;font-size:.9em;line-height:1.6}
-.tip-box.warn{background:#2a2a1a;border-color:#4a4a2a}
-footer{text-align:center;padding:20px;color:#555;font-size:.85em;border-top:1px solid #222;margin-top:30px}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* Layout */
+.shell{max-width:960px;margin:0 auto;padding:24px 20px 48px}
+
+/* Nav */
+nav{display:flex;align-items:center;justify-content:space-between;padding:16px 0 24px;border-bottom:1px solid var(--border);margin-bottom:32px}
+nav .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.15rem;letter-spacing:-.02em}
+nav .brand svg{width:28px;height:28px}
+nav .links{display:flex;gap:6px}
+nav .links a{color:var(--text2);text-decoration:none;font-size:.8125rem;padding:6px 12px;border-radius:6px;transition:all .15s}
+nav .links a:hover{color:var(--text);background:var(--surface)}
+
+/* Hero */
+.hero{text-align:center;padding:20px 0 36px}
+.hero h1{font-size:2.25rem;font-weight:800;letter-spacing:-.04em;line-height:1.15;background:linear-gradient(135deg,var(--text) 0%,var(--accent2) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{color:var(--text2);font-size:1.05rem;margin-top:10px;max-width:480px;margin-left:auto;margin-right:auto;line-height:1.5}
+.hero .pill{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:5px 14px;border-radius:20px;font-size:.75rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;transition:border-color .2s}
+.card:hover{border-color:var(--accent)}
+.card.full{grid-column:1/-1}
+.card .label{font-size:.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2);margin-bottom:10px}
+.card h2{font-size:1.125rem;font-weight:700;letter-spacing:-.02em;margin-bottom:6px}
+.card .desc{color:var(--text2);font-size:.875rem;line-height:1.5;margin-bottom:18px}
+
+/* Buttons */
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8125rem;font-weight:600;cursor:pointer;transition:all .15s;text-decoration:none}
+.btn:hover{background:var(--border);border-color:#52525b}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+
+/* Stats row */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px;display:none}
+.stats .s{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center}
+.stats .s .n{font-size:1.5rem;font-weight:800;letter-spacing:-.03em}
+.stats .s .l{font-size:.6875rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.n.c-green{color:var(--green)}.n.c-red{color:var(--red)}
+
+/* Results */
+.results-wrap{margin-top:16px;display:none}
+.results-pre{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;white-space:pre-wrap;font-family:'SF Mono',SFMono-Regular,ui-monospace,'Cascadia Code',Menlo,monospace;font-size:.8125rem;max-height:520px;overflow-y:auto;line-height:1.65;color:var(--text2)}
+
+/* Key cards */
+.kc{display:flex;align-items:center;gap:14px;padding:12px 16px;margin:6px 0;background:var(--bg);border:1px solid var(--border);border-radius:8px;border-left:3px solid var(--border);transition:border-color .15s}
+.kc:hover{border-color:var(--accent)}
+.kc.v-valid{border-left-color:var(--green)}
+.kc.v-auth_failed,.kc.v-suspended_account{border-left-color:var(--red)}
+.kc.v-network_error,.kc.v-quota_exhausted,.kc.v-insufficient_scope,.kc.v-invalid_format{border-left-color:var(--amber)}
+.kc .ki{font-size:1.1rem;flex-shrink:0;width:24px;text-align:center}
+.kc .km{flex:1;min-width:0}
+.kc .kp{font-weight:600;font-size:.875rem}
+.kc .ke{color:var(--text2);font-size:.75rem;margin-top:1px;font-family:monospace}
+.kc .ks{font-size:.6875rem;font-weight:600;padding:3px 10px;border-radius:20px;flex-shrink:0;text-transform:uppercase;letter-spacing:.03em}
+.ks.t-valid{background:var(--green-bg);color:var(--green)}
+.ks.t-auth_failed,.ks.t-suspended_account{background:var(--red-bg);color:var(--red)}
+.ks.t-network_error,.ks.t-quota_exhausted,.ks.t-insufficient_scope,.ks.t-invalid_format{background:var(--amber-bg);color:var(--amber)}
+
+/* Tip */
+.tip{border:1px solid rgba(34,197,94,.2);background:var(--green-bg);border-radius:8px;padding:14px 16px;margin-top:12px;font-size:.8125rem;line-height:1.6;color:var(--green)}
+.tip.warn{border-color:rgba(245,158,11,.2);background:var(--amber-bg);color:var(--amber)}
+
+/* Loading */
+.loader{display:none;text-align:center;padding:20px 0}
+.loader .bar{width:200px;height:3px;background:var(--surface2);border-radius:2px;margin:0 auto 10px;overflow:hidden}
+.loader .bar::after{content:'';display:block;width:40%;height:100%;background:var(--accent);border-radius:2px;animation:slide 1s ease-in-out infinite}
+@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+.loader .lt{color:var(--text2);font-size:.8125rem}
+
+/* Help links */
+.help-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+@media(max-width:640px){.help-grid{grid-template-columns:1fr 1fr}}
+.help-grid a{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;background:var(--bg);border:1px solid var(--border);color:var(--text);text-decoration:none;font-size:.8125rem;font-weight:500;transition:all .15s}
+.help-grid a:hover{border-color:var(--accent);color:var(--accent2)}
+.help-grid a .hi{font-size:1rem}
+
+/* Footer */
+footer{text-align:center;padding:24px 0 0;margin-top:40px;border-top:1px solid var(--border);color:var(--text2);font-size:.75rem}
+footer a{color:var(--text2);text-decoration:none;transition:color .15s}
+footer a:hover{color:var(--text)}
 </style>
 </head>
 <body>
-<div class="container">
-<header>
-  <h1>🔐 Check Please</h1>
-  <p>Check if your API keys still work — safely and privately</p>
-  <div class="badge">🛡️ Your keys never leave your computer</div>
-</header>
-
-<div class="card">
-  <h2>🔍 Check Your API Keys</h2>
-  <p>Click the button below to scan your .env file and verify each key with its service.
-     This usually takes 10-30 seconds.</p>
-  <button class="btn btn-primary" onclick="runAudit()">Check My Keys</button>
-  <button class="btn btn-amber" onclick="runPreview()">Preview Only</button>
-  <button class="btn btn-green" onclick="runSelfTest()">Self-Test</button>
-  <div class="spinner" id="spinner"></div>
-  <div class="loading-msg" id="loading-msg">⏳ Checking your keys... this usually takes 10-30 seconds</div>
-  <div id="status-bar" class="status-bar" style="display:none">
-    <div class="stat"><div class="num" id="s-total">-</div><div class="label">Total</div></div>
-    <div class="stat"><div class="num valid" id="s-valid">-</div><div class="label">Valid</div></div>
-    <div class="stat"><div class="num failed" id="s-failed">-</div><div class="label">Failed</div></div>
-    <div class="stat"><div class="num" id="s-providers">-</div><div class="label">Providers</div></div>
+<div class="shell">
+<nav>
+  <div class="brand">
+    <svg viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="6" fill="#6366f1"/><path d="M8 14l4 4 8-8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Check Please
   </div>
-  <div class="results" id="results" style="display:none"></div>
+  <div class="links">
+    <a href="/help/security">Security</a>
+    <a href="/help/getting-started">Docs</a>
+    <a href="/stop" onclick="return confirm('Stop server?')">Stop</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <h1>Credential Audit Pipeline</h1>
+  <p>Validate your API keys against live provider endpoints. Private, local, instant.</p>
+  <div class="pill">● Local only — keys never leave your machine</div>
+</div>
+
+<div class="grid">
+<div class="card full">
+  <div class="label">Audit</div>
+  <h2>Validate Credentials</h2>
+  <div class="desc">Scan your .env and verify each key against its provider API. Takes 10–30s.</div>
+  <div class="actions">
+    <button class="btn primary" onclick="runAudit()">Run Audit</button>
+    <button class="btn" onclick="runPreview()">Dry Run</button>
+    <button class="btn" onclick="runSelfTest()">Self-Test</button>
+  </div>
+  <div class="loader" id="loader"><div class="bar"></div><div class="lt" id="loader-text">Checking keys…</div></div>
+  <div class="stats" id="stats">
+    <div class="s"><div class="n" id="s-total">-</div><div class="l">Total</div></div>
+    <div class="s"><div class="n c-green" id="s-valid">-</div><div class="l">Valid</div></div>
+    <div class="s"><div class="n c-red" id="s-failed">-</div><div class="l">Failed</div></div>
+    <div class="s"><div class="n" id="s-providers">-</div><div class="l">Providers</div></div>
+  </div>
+  <div class="results-wrap" id="results-wrap"><div id="results"></div></div>
 </div>
 
 <div class="card">
-  <h2>📚 Help & Information</h2>
-  <p>New to API keys? Not sure what something means? We've got you covered.</p>
-  <a class="help-link" href="/help/getting-started">🚀 Getting Started</a> &nbsp;
-  <a class="help-link" href="/help/api-keys">🔑 What Are API Keys?</a> &nbsp;
-  <a class="help-link" href="/help/results">📊 Understanding Results</a> &nbsp;
-  <a class="help-link" href="/help/security">🛡️ Security</a> &nbsp;
-  <a class="help-link" href="/help/troubleshooting">🔧 Troubleshooting</a> &nbsp;
-  <a class="help-link" href="/help/glossary">📖 Glossary</a>
+  <div class="label">Providers</div>
+  <h2>16 Supported Services</h2>
+  <div class="desc">OpenAI, GitHub, Stripe, Anthropic, Google, and more.</div>
+  <button class="btn" onclick="listProviders()">View All</button>
+  <div class="results-wrap" id="prov-wrap"><div class="results-pre" id="providers"></div></div>
 </div>
 
 <div class="card">
-  <h2>📋 Supported Services</h2>
-  <p>We can check keys for 16 services including OpenAI, GitHub, Stripe, Google, Anthropic, and more.</p>
-  <button class="btn btn-primary" onclick="listProviders()">Show All Providers</button>
-  <div class="results" id="providers" style="display:none"></div>
+  <div class="label">Resources</div>
+  <h2>Help & Docs</h2>
+  <div class="desc">Guides, security info, and troubleshooting.</div>
+  <div class="help-grid">
+    <a href="/help/getting-started"><span class="hi">🚀</span> Getting Started</a>
+    <a href="/help/api-keys"><span class="hi">🔑</span> API Keys 101</a>
+    <a href="/help/results"><span class="hi">📊</span> Reading Results</a>
+    <a href="/help/security"><span class="hi">🛡️</span> Security</a>
+    <a href="/help/troubleshooting"><span class="hi">🔧</span> Troubleshooting</a>
+    <a href="/help/glossary"><span class="hi">📖</span> Glossary</a>
+  </div>
+</div>
 </div>
 
-<footer>
-  Check Please — Credential Audit Tool &nbsp;|&nbsp;
-  <a class="help-link" href="/help/security">Your keys are safe</a> &nbsp;|&nbsp;
-  <a class="help-link" href="/stop" onclick="return confirm('Stop the web server?')">Stop Server</a>
-</footer>
+<footer>Check Please &middot; Credential Audit Tool &middot; <a href="/help/security">Your keys are safe</a></footer>
 </div>
 
 <script>
+const $=s=>document.getElementById(s);
+const SI={valid:{i:'✓',l:'Valid'},auth_failed:{i:'✗',l:'Failed'},network_error:{i:'!',l:'Net Error'},quota_exhausted:{i:'!',l:'Quota'},suspended_account:{i:'✗',l:'Suspended'},insufficient_scope:{i:'!',l:'Limited'},invalid_format:{i:'?',l:'Bad Format'}};
+const TIPS={auth_failed:'Rotate this key — create a new one in the provider dashboard.',network_error:'Check your internet connection and try again.',quota_exhausted:'Add credits or wait for your rate limit to reset.',suspended_account:'Check your account status on this service.',insufficient_scope:'This key is missing required permissions.',invalid_format:'The key value doesn\'t match the expected pattern.'};
+
 async function api(path,msg){
-  const sp=document.getElementById('spinner');
-  const lm=document.getElementById('loading-msg');
-  sp.style.display='block';
-  if(msg){lm.textContent=msg;lm.style.display='block';}
+  $('loader').style.display='block';
+  if(msg)$('loader-text').textContent=msg;
   document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
-  try{
-    const resp=await fetch(path);
-    const data=await resp.json();
-    return data;
-  }finally{
-    sp.style.display='none';
-    lm.style.display='none';
-    document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
-  }
+  try{const r=await fetch(path);return await r.json();}
+  finally{$('loader').style.display='none';document.querySelectorAll('.btn').forEach(b=>b.disabled=false);}
 }
-const STATUS_INFO={
-  valid:{icon:'✅',label:'Valid',cls:'valid',tip:''},
-  auth_failed:{icon:'❌',label:'Failed',cls:'auth_failed',tip:'Log into this service and create a new key'},
-  network_error:{icon:'⚠️',label:'Network Error',cls:'network_error',tip:'Check your internet connection and try again'},
-  quota_exhausted:{icon:'⚠️',label:'Quota Used',cls:'quota_exhausted',tip:'Add credits or wait for your limit to reset'},
-  suspended_account:{icon:'🚫',label:'Suspended',cls:'suspended_account',tip:'Check your account status on this service'},
-  insufficient_scope:{icon:'⚠️',label:'Limited',cls:'insufficient_scope',tip:'This key is missing some permissions'},
-  invalid_format:{icon:'🔶',label:'Bad Format',cls:'invalid_format',tip:'The key doesn\'t match the expected pattern for this service'},
-};
+
 async function runAudit(){
-  const data=await api('/api/audit','⏳ Checking your keys... this usually takes 10-30 seconds');
-  const r=document.getElementById('results');
-  r.style.display='block';
-  if(data.error){r.innerHTML='<div class="tip-box warn">❌ '+data.error+'</div>';return;}
-  const sb=document.getElementById('status-bar');
-  sb.style.display='flex';
-  const s=data.summary||{};
-  document.getElementById('s-total').textContent=s.total_keys||data.results.length;
-  document.getElementById('s-valid').textContent=s.valid||0;
-  document.getElementById('s-failed').textContent=s.failed||0;
-  document.getElementById('s-providers').textContent=s.providers_checked||'-';
-  let html='';
-  let hasIssues=false;
-  for(const k of data.results){
-    const si=STATUS_INFO[k.status]||{icon:'❓',label:k.status,cls:'',tip:''};
-    if(k.status!=='valid')hasIssues=true;
+  const d=await api('/api/audit','Validating credentials…');
+  const rw=$('results-wrap');rw.style.display='block';
+  if(d.error){$('results').innerHTML='<div class="tip warn">'+d.error+'</div>';return;}
+  const sb=$('stats');sb.style.display='grid';
+  const s=d.summary||{};
+  $('s-total').textContent=s.total_keys||d.results.length;
+  $('s-valid').textContent=s.valid||0;
+  $('s-failed').textContent=s.failed||0;
+  $('s-providers').textContent=s.providers_checked||'-';
+  let h='',issues=false;
+  for(const k of d.results){
+    const si=SI[k.status]||{i:'?',l:k.status};
+    if(k.status!=='valid')issues=true;
     const fp=k.key_fingerprint;
-    const fpStr=fp.prefix?fp.prefix+'...'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
-    html+='<div class="key-card s-'+k.status+'">';
-    html+='<span class="icon">'+si.icon+'</span>';
-    html+='<div class="info"><div class="provider">'+k.provider+'</div><div class="env-var">'+k.env_var+' &middot; '+fpStr+'</div></div>';
-    html+='<span class="status '+k.status+'">'+si.label+'</span></div>';
+    const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
+    h+='<div class="kc v-'+k.status+'">';
+    h+='<span class="ki">'+si.i+'</span>';
+    h+='<div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div>';
+    h+='<span class="ks t-'+k.status+'">'+si.l+'</span></div>';
   }
-  if(!hasIssues){
-    html+='<div class="tip-box">🎉 All your keys are valid! Everything looks good.</div>';
-  }else{
-    html+='<div class="tip-box warn"><strong>What to do about failed keys:</strong><br>';
+  if(!issues)h+='<div class="tip">All credentials validated successfully.</div>';
+  else{
+    h+='<div class="tip warn"><strong>Action needed:</strong><br>';
     const seen=new Set();
-    for(const k of data.results){
-      const si=STATUS_INFO[k.status];
-      if(si&&si.tip&&!seen.has(k.status)){seen.add(k.status);html+=si.icon+' <strong>'+si.label+'</strong>: '+si.tip+'<br>';}
-    }
-    html+='</div>';
+    for(const k of d.results){const t=TIPS[k.status];if(t&&!seen.has(k.status)){seen.add(k.status);h+=SI[k.status].i+' <strong>'+SI[k.status].l+'</strong> — '+t+'<br>';}}
+    h+='</div>';
   }
-  r.innerHTML=html;
+  $('results').innerHTML=h;
 }
+
 async function runPreview(){
-  const data=await api('/api/preview','👀 Loading preview...');
-  const r=document.getElementById('results');
-  r.style.display='block';
-  r.textContent=data.output||data.error||'No output';
+  const d=await api('/api/preview','Loading preview…');
+  $('results-wrap').style.display='block';
+  $('results').innerHTML='<div class="results-pre">'+(d.output||d.error||'No output')+'</div>';
 }
 async function runSelfTest(){
-  const data=await api('/api/self-test','🧪 Running self-test...');
-  const r=document.getElementById('results');
-  r.style.display='block';
-  r.textContent=data.output||data.error||'No output';
+  const d=await api('/api/self-test','Running self-test…');
+  $('results-wrap').style.display='block';
+  $('results').innerHTML='<div class="results-pre">'+(d.output||d.error||'No output')+'</div>';
 }
 async function listProviders(){
-  const data=await api('/api/providers');
-  const p=document.getElementById('providers');
-  p.style.display='block';
-  p.textContent=data.output||data.error||'No output';
+  const d=await api('/api/providers');
+  $('prov-wrap').style.display='block';
+  $('providers').textContent=d.output||d.error||'No output';
 }
 </script>
 </body>
@@ -207,15 +245,16 @@ HELP_HTML = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} — Check Please</title>
 <style>
+:root{{--bg:#09090b;--surface:#18181b;--border:#3f3f46;--text:#fafafa;--text2:#a1a1aa;--accent:#6366f1;--accent2:#818cf8}}
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f0f23;color:#e0e0e0;min-height:100vh}}
-.container{{max-width:700px;margin:0 auto;padding:30px}}
-h1{{margin-bottom:20px}}
-pre{{background:#1a1a2e;padding:20px;border-radius:8px;line-height:1.7;white-space:pre-wrap}}
-a{{color:#60a5fa;text-decoration:none}}a:hover{{text-decoration:underline}}
-.back{{display:inline-block;margin-bottom:20px}}
-</style></head><body><div class="container">
-<a class="back" href="/">← Back to dashboard</a>
+body{{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}}
+.wrap{{max-width:680px;margin:0 auto;padding:32px 20px}}
+.back{{display:inline-flex;align-items:center;gap:6px;color:var(--text2);text-decoration:none;font-size:.8125rem;font-weight:500;padding:6px 12px;border-radius:6px;margin-bottom:24px;transition:all .15s}}
+.back:hover{{color:var(--text);background:var(--surface)}}
+h1{{font-size:1.75rem;font-weight:800;letter-spacing:-.03em;margin-bottom:20px}}
+pre{{background:var(--surface);border:1px solid var(--border);padding:24px;border-radius:10px;line-height:1.75;white-space:pre-wrap;font-family:system-ui,sans-serif;font-size:.875rem;color:var(--text2)}}
+</style></head><body><div class="wrap">
+<a class="back" href="/">← Dashboard</a>
 <h1>{title}</h1>
 <pre>{body}</pre>
 </div></body></html>"""
