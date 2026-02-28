@@ -21,22 +21,63 @@ from urllib.parse import parse_qs
 
 DIR = Path(__file__).resolve().parent
 PORT = 8457
-VAULT_FILE = DIR / ".vault.json"
-ACCOUNT_FILE = DIR / ".account.json"
+ACCOUNTS_DIR = DIR / ".accounts"
+VAULTS_DIR = DIR / ".vaults"
+# Legacy single-file paths (for migration)
+_LEGACY_ACCOUNT = DIR / ".account.json"
+_LEGACY_VAULT = DIR / ".vault.json"
+
+_current_user: str = ""  # set on login
+
+def _acct_path(username: str) -> Path:
+    ACCOUNTS_DIR.mkdir(exist_ok=True)
+    return ACCOUNTS_DIR / f"{username}.json"
+
+def _vault_path(username: str | None = None) -> Path:
+    VAULTS_DIR.mkdir(exist_ok=True)
+    return VAULTS_DIR / f"{username or _current_user or '_default'}.json"
+
+def _list_users() -> list[str]:
+    ACCOUNTS_DIR.mkdir(exist_ok=True)
+    return sorted(p.stem for p in ACCOUNTS_DIR.glob("*.json"))
+
+def _migrate_legacy() -> None:
+    """Migrate old single-file account/vault to multi-account dirs."""
+    if _LEGACY_ACCOUNT.is_file():
+        try:
+            acct = json.loads(_LEGACY_ACCOUNT.read_text())
+            name = acct.get("name", "user") or "user"
+            dest = _acct_path(name)
+            if not dest.is_file():
+                dest.write_text(json.dumps(acct, indent=2))
+                os.chmod(dest, 0o600)
+            if _LEGACY_VAULT.is_file():
+                vdest = _vault_path(name)
+                if not vdest.is_file():
+                    vdest.write_text(_LEGACY_VAULT.read_text())
+                    os.chmod(vdest, 0o600)
+                _LEGACY_VAULT.unlink()
+            _LEGACY_ACCOUNT.unlink()
+        except Exception:
+            pass
 
 # ── Vault helpers ──────────────────────────────────────────────────────────
 
+VAULT_FILE = _LEGACY_VAULT  # kept for test compat
+
 def _load_vault() -> list[dict]:
-    if VAULT_FILE.is_file():
+    vf = _vault_path()
+    if vf.is_file():
         try:
-            return json.loads(VAULT_FILE.read_text())
+            return json.loads(vf.read_text())
         except Exception:
             return []
     return []
 
 def _save_vault(entries: list[dict]) -> None:
-    VAULT_FILE.write_text(json.dumps(entries, indent=2))
-    os.chmod(VAULT_FILE, 0o600)
+    vf = _vault_path()
+    vf.write_text(json.dumps(entries, indent=2))
+    os.chmod(vf, 0o600)
 
 def _vault_id() -> str:
     return secrets.token_hex(8)
@@ -59,7 +100,6 @@ def _derive_key(passkey: str, salt: bytes) -> bytes:
 def _encrypt(data: str, passkey: str) -> dict:
     salt = secrets.token_bytes(16)
     key = _derive_key(passkey, salt)
-    # XOR stream cipher with HMAC — zero-dependency encryption
     stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(data))
     ct = bytes(a ^ b for a, b in zip(data.encode(), stream))
     mac = _hmac.new(key, ct, "sha256").hexdigest()
@@ -75,27 +115,33 @@ def _decrypt(blob: dict, passkey: str) -> str | None:
     except Exception:
         return None
 
-def _load_account() -> dict | None:
-    if ACCOUNT_FILE.is_file():
+def _load_account(username: str | None = None) -> dict | None:
+    name = username or _current_user
+    if not name:
+        return None
+    p = _acct_path(name)
+    if p.is_file():
         try:
-            return json.loads(ACCOUNT_FILE.read_text())
+            return json.loads(p.read_text())
         except Exception:
             return None
     return None
 
-def _save_account(data: dict) -> None:
-    ACCOUNT_FILE.write_text(json.dumps(data, indent=2))
-    os.chmod(ACCOUNT_FILE, 0o600)
+def _save_account(data: dict, username: str | None = None) -> None:
+    name = username or _current_user or data.get("name", "user")
+    p = _acct_path(name)
+    p.write_text(json.dumps(data, indent=2))
+    os.chmod(p, 0o600)
 
-def _verify_passkey(passkey: str) -> bool:
-    acct = _load_account()
+def _verify_passkey(passkey: str, username: str | None = None) -> bool:
+    acct = _load_account(username)
     if not acct:
         return False
     result = _decrypt(acct.get("check", {}), passkey)
     return result == "check_please_ok"
 
 def _account_exists() -> bool:
-    return ACCOUNT_FILE.is_file()
+    return len(_list_users()) > 0
 
 
 # ── HTML: Full SPA ─────────────────────────────────────────────────────────
@@ -321,14 +367,18 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div class="input-group"><label>Confirm Password</label><input type="password" id="setup-pass2" placeholder="Confirm password"></div>
       <div class="lock-err" id="setup-err"></div>
       <button class="btn primary" onclick="createAccount()" style="width:100%">Create Account</button>
+      <div id="lock-switch-login" style="display:none;margin-top:16px;text-align:center"><a href="#" onclick="showLogin();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none">← Back to sign in</a></div>
     </div>
     <div id="lock-login" style="display:none">
-      <p id="lock-greeting">Enter your password to unlock.</p>
+      <p id="lock-greeting">Sign in to your vault.</p>
+      <div id="account-picker" style="display:none;margin-bottom:14px">
+        <div class="input-group"><label>Account</label><select id="login-user" onchange="onUserPick()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:10px 14px;font-size:.875rem;font-family:var(--font);width:100%"></select></div>
+      </div>
       <div class="input-group"><label>Password</label><input type="password" id="login-pass" placeholder="Enter password" onkeydown="if(event.key==='Enter')unlock()"></div>
       <div class="lock-err" id="login-err"></div>
       <button class="btn primary" onclick="unlock()" style="width:100%;margin-bottom:8px">Unlock</button>
       <button class="btn" onclick="biometricAuth()" id="bio-login-btn" style="width:100%;display:none">🔒 Unlock with Biometrics</button>
-      <div style="margin-top:16px"><a href="#" onclick="showForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Forgot password?</a></div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between"><a href="#" onclick="showForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Forgot password?</a><a href="#" onclick="showSetup();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">+ New Account</a></div>
     </div>
     <!-- Forgot password -->
     <div id="lock-forgot" style="display:none">
@@ -558,6 +608,17 @@ tr:hover td{background:rgba(129,140,248,.04)}
       </div>
     </div>
     <div class="panel" style="grid-column:1/-1">
+      <div class="panel-header"><h2>Backup &amp; Recovery</h2></div>
+      <p style="color:var(--text2);font-size:.8125rem;line-height:1.6;margin-bottom:14px">Export an encrypted backup of your vault and account. If you ever lose access, import the backup with your password to restore everything.</p>
+      <div class="btn-group">
+        <button class="btn primary" onclick="exportBackup()">📦 Export Encrypted Backup</button>
+        <button class="btn" onclick="E('backup-file').click()">📥 Import Backup</button>
+        <button class="btn" onclick="printEmergencySheet()">🖨️ Print Emergency Sheet</button>
+      </div>
+      <input type="file" id="backup-file" accept=".cpbackup" style="display:none" onchange="importBackup(this)">
+      <div id="backup-status" style="color:var(--text3);font-size:.75rem;margin-top:10px"></div>
+    </div>
+    <div class="panel" style="grid-column:1/-1">
       <div class="panel-header"><h2>Help</h2></div>
       <div class="btn-group">
         <button class="btn" onclick="startTour()">🎓 Replay App Tour</button>
@@ -760,6 +821,35 @@ async function runPreview(){go('audit');setLoading('audit-loader',true,'Loading 
 async function runSelfTest(){go('audit');setLoading('audit-loader',true,'Running self-test…');E('audit-results').innerHTML='';const d=await api('/api/self-test');setLoading('audit-loader',false);E('audit-output-card').style.display='block';E('audit-output').textContent=d.output||d.error||'No output';}
 async function loadProviders(){setLoading('prov-loader',true);const d=await api('/api/providers');setLoading('prov-loader',false);if(d.output)E('prov-list').innerHTML='<div class="pre">'+d.output.replace(/</g,'&lt;')+'</div>';}
 
+// ── Backup & Emergency ──
+async function exportBackup(){
+  const pw=prompt('Enter your password to encrypt the backup:');if(!pw)return;
+  const d=await api('/api/backup/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});
+  if(d.error){toast(d.error,'error');return;}
+  toast('Backup saved to '+d.path,'success');E('backup-status').textContent='Last backup: '+new Date().toLocaleString()+' → '+d.path;
+}
+async function importBackup(input){
+  const file=input.files[0];if(!file)return;
+  const pw=prompt('Enter the password used when this backup was created:');if(!pw){input.value='';return;}
+  const text=await file.text();
+  const d=await api('/api/backup/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:text,passkey:pw})});
+  input.value='';if(d.error){toast(d.error,'error');return;}
+  toast('Restored! '+d.vault_entries+' vault entries recovered.','success');loadVault();
+}
+function printEmergencySheet(){
+  const user=E('set-name').value||'Unknown';const date=E('set-created').value||new Date().toLocaleString();
+  const w=window.open('','_blank','width=700,height=900');
+  w.document.write('<html><head><title>Emergency Sheet</title><style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;color:#111}h1{font-size:24px;border-bottom:3px solid #4f46e5;padding-bottom:12px}h2{font-size:16px;margin-top:28px;color:#4f46e5}.box{border:2px dashed #999;border-radius:8px;padding:16px;margin:12px 0;font-family:monospace;font-size:18px;letter-spacing:2px;text-align:center;min-height:28px}.info{font-size:13px;color:#555;line-height:1.7;margin:12px 0}.warn{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px;font-size:13px;margin:20px 0}.footer{margin-top:40px;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:12px}@media print{body{margin:20px}}</style></head><body>');
+  w.document.write('<h1>🔑 Check Please — Emergency Recovery Sheet</h1>');
+  w.document.write('<div class="info"><strong>Username:</strong> '+user+'<br><strong>Account Created:</strong> '+date+'<br><strong>Printed:</strong> '+new Date().toLocaleString()+'</div>');
+  w.document.write('<h2>Recovery Key</h2><div class="box" id="rk">Your recovery key was shown when you created your account.<br>Write it here:</div>');
+  w.document.write('<h2>Instructions</h2><div class="info"><ol><li>Open Check Please and click <strong>Forgot password?</strong></li><li>Enter the recovery key above</li><li>Set a new password</li><li>Your vault will be unlocked with all data intact</li></ol></div>');
+  w.document.write('<div class="warn"><strong>⚠️ Keep this sheet in a safe place</strong> (safe, safety deposit box, etc). Anyone with this recovery key can reset your password and access your vault.</div>');
+  w.document.write('<h2>If Recovery Key Is Lost</h2><div class="info">If you lose both your password and recovery key, import an <strong>encrypted backup</strong> file (.cpbackup). If no backup exists, the vault data cannot be recovered — this is by design for your security.</div>');
+  w.document.write('<div class="footer">Generated by Check Please · github.com/Senpai-Sama7/check-please · This document contains sensitive recovery information.</div>');
+  w.document.write('</body></html>');w.document.close();w.print();
+}
+
 // ── .env Upload & Drag/Drop ──
 const dz=E('drop-zone');
 ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('dragover')}));
@@ -842,15 +932,24 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
 // ── Account ──
 async function checkAccount(){
   const d=await api('/api/account/status');
-  if(d.exists){E('lock-setup').style.display='none';E('lock-login').style.display='block';if(d.name)E('lock-greeting').textContent='Welcome back, '+d.name+'.';if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';}
-  else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
+  if(d.users&&d.users.length){
+    E('lock-setup').style.display='none';E('lock-login').style.display='block';
+    const sel=E('login-user');sel.innerHTML='';
+    if(d.users.length>1){E('account-picker').style.display='block';d.users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});}
+    else{E('account-picker').style.display='none';sel.innerHTML='<option>'+d.users[0]+'</option>';}
+    E('lock-greeting').textContent='Sign in'+(d.users.length===1?' as '+d.users[0]:'')+'.';
+    if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';
+  }else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
-async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
-async function unlock(){const pw=E('login-pass').value;if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
+function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style.display='none';E('lock-setup').style.display='block';E('lock-switch-login').style.display='block';}
+function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
+function onUserPick(){E('login-err').textContent='';}
+async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
+async function unlock(){const pw=E('login-pass').value,user=E('login-user').value;if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
 function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
 function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
-async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value;if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
+async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=E('login-user').value;if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
 async function nukeAccount(){const d=await api('/api/account/nuke',{method:'POST'});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
 
 async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
@@ -987,11 +1086,15 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/providers":
             self._json(self._run_cmd(["--list-providers"]))
         elif path == "/api/account/status":
+            _migrate_legacy()
+            users = _list_users()
             acct = _load_account()
             if acct:
-                self._json({"exists": True, "name": acct.get("name", ""), "created": acct.get("created", ""), "has_biometric": bool(acct.get("webauthn_credentials"))})
+                self._json({"exists": True, "users": users, "name": acct.get("name", ""), "created": acct.get("created", ""), "has_biometric": bool(acct.get("webauthn_credentials"))})
+            elif users:
+                self._json({"exists": True, "users": users})
             else:
-                self._json({"exists": False})
+                self._json({"exists": False, "users": []})
         elif path == "/api/webauthn/register-challenge":
             acct = _load_account()
             if not acct:
@@ -1029,6 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
             self._html("<h1>Not found</h1>", 404)
 
     def do_POST(self) -> None:
+        global _current_user
         path = self.path.split("?")[0]
         body = self._read_body()
 
@@ -1038,18 +1142,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._json({"error": "Invalid JSON"}, 400)
                 return
-            if _account_exists():
-                self._json({"error": "Account already exists"}, 400)
+            username = data.get("name", "").strip()
+            if not username:
+                self._json({"error": "Username required"}, 400)
+                return
+            if _acct_path(username).is_file():
+                self._json({"error": "Username already taken"}, 400)
                 return
             passkey = data.get("passkey", "")
             if len(passkey) < 4:
                 self._json({"error": "Passkey too short"}, 400)
                 return
+            _current_user = username
             check_blob = _encrypt("check_please_ok", passkey)
             recovery_key = "-".join(secrets.token_hex(2).upper() for _ in range(4))
             recovery_hash = hashlib.sha256(recovery_key.encode()).hexdigest()
             _save_account({
-                "name": data.get("name", ""),
+                "name": username,
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "check": check_blob,
                 "recovery_hash": recovery_hash,
@@ -1061,7 +1170,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._json({"error": "Invalid JSON"}, 400)
                 return
-            ok = _verify_passkey(data.get("passkey", ""))
+            username = data.get("username", "") or (_list_users() or [""])[0]
+            ok = _verify_passkey(data.get("passkey", ""), username)
+            if ok:
+                _current_user = username
             self._json({"ok": ok})
         elif path == "/api/account/change-passkey":
             try:
@@ -1086,7 +1198,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._json({"error": "Invalid JSON"}, 400)
                 return
-            acct = _load_account()
+            username = data.get("username", "") or (_list_users() or [""])[0]
+            acct = _load_account(username)
             if not acct:
                 self._json({"error": "No account exists"}, 400)
                 return
@@ -1100,14 +1213,75 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Password too short"}, 400)
                 return
             acct["check"] = _encrypt("check_please_ok", new_pw)
-            _save_account(acct)
+            _save_account(acct, username)
             self._json({"ok": True})
         elif path == "/api/account/nuke":
-            if ACCOUNT_FILE.is_file():
-                ACCOUNT_FILE.unlink()
-            if VAULT_FILE.is_file():
-                VAULT_FILE.unlink()
+            if _current_user:
+                ap = _acct_path(_current_user)
+                vp = _vault_path(_current_user)
+                if ap.is_file(): ap.unlink()
+                if vp.is_file(): vp.unlink()
+                _current_user = ""
+            # Also clean legacy files
+            if _LEGACY_ACCOUNT.is_file(): _LEGACY_ACCOUNT.unlink()
+            if _LEGACY_VAULT.is_file(): _LEGACY_VAULT.unlink()
             self._json({"ok": True})
+        elif path == "/api/backup/export":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            passkey = data.get("passkey", "")
+            if not _verify_passkey(passkey):
+                self._json({"error": "Incorrect password"}, 403)
+                return
+            acct = _load_account()
+            vault = _load_vault()
+            payload = json.dumps({"account": acct, "vault": vault, "exported": time.strftime("%Y-%m-%dT%H:%M:%S"), "version": 1})
+            encrypted = _encrypt(payload, passkey)
+            backup = json.dumps({"check_please_backup": True, "data": encrypted}, indent=2)
+            dl = Path.home() / "Downloads"
+            dl.mkdir(exist_ok=True)
+            name = _current_user or "backup"
+            dest = dl / f"check_please_{name}_{time.strftime('%Y%m%d')}.cpbackup"
+            dest.write_text(backup)
+            os.chmod(dest, 0o600)
+            self._json({"ok": True, "path": str(dest)})
+        elif path == "/api/backup/import":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            passkey = data.get("passkey", "")
+            try:
+                backup = json.loads(data.get("data", ""))
+            except Exception:
+                self._json({"error": "Invalid backup file"}, 400)
+                return
+            if not backup.get("check_please_backup"):
+                self._json({"error": "Not a Check Please backup file"}, 400)
+                return
+            decrypted = _decrypt(backup.get("data", {}), passkey)
+            if not decrypted:
+                self._json({"error": "Wrong password — cannot decrypt backup"}, 403)
+                return
+            try:
+                payload = json.loads(decrypted)
+            except Exception:
+                self._json({"error": "Corrupted backup data"}, 400)
+                return
+            # Restore account
+            acct = payload.get("account", {})
+            if acct and acct.get("name"):
+                _current_user = acct["name"]
+                _save_account(acct)
+            # Restore vault
+            vault = payload.get("vault", [])
+            if vault:
+                _save_vault(vault)
+            self._json({"ok": True, "vault_entries": len(vault)})
         elif path == "/api/webauthn/register":
             try:
                 data = json.loads(body)
