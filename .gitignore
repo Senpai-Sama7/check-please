@@ -1,0 +1,17 @@
+.env
+.env.organized
+.env.backup
+audit_report.json
+.venv/
+__pycache__/
+*.pyc
+.claude/
+.deepseek/
+.gemini/
+.gpt/
+.kimi/
+.misc/
+.perplexity/
+.qwen/
+.z-ai/
+.kiro/
