@@ -26,3 +26,5 @@ dist/
 build/
 .check_please_seen
 .check_please_name
+.check_please_agent_permissions.json
+agent_access.log

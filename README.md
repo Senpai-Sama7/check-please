@@ -26,6 +26,7 @@ check-please --dry-run --env .env    # preview without API calls
 ./start.sh --web        # Browser-based visual interface
 ./start.sh --tui        # Rich terminal UI (requires textual)
 ./start.sh --guide      # First-time tutorial
+./start.sh --agent-api  # Credential broker for AI agents
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
 ```
@@ -145,6 +146,53 @@ The Dashboard "Organize" button pushes a sub-screen that runs `.env` organizatio
 | Dry run | Preview matched credentials without making API calls |
 | JSON stdout | Pipe audit results to jq, scripts, or other tools |
 | Quiet mode | Exit code only — for CI/CD pipelines |
+
+## Agent API
+
+A localhost credential broker that lets AI agents (MCP tools, LangChain, AutoGPT, etc.) securely request API keys with your permission.
+
+```bash
+./start.sh --agent-api
+```
+
+On startup, the broker:
+1. Loads your `.env`
+2. Generates a one-time bearer token (displayed in terminal)
+3. Listens on `http://127.0.0.1:8458`
+4. Logs every access to `agent_access.log`
+
+### Permissions
+
+Create `.check_please_agent_permissions.json` to control which credentials agents can access:
+
+```json
+{
+  "allowed": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+}
+```
+
+Agents can only retrieve credentials listed in `allowed`. Everything else is denied.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/providers` | List providers and their env var names (no values) |
+| GET | `/credentials` | List allowed credential names (no values) |
+| POST | `/credentials/{VAR}` | Get credential value (if permitted) |
+| GET | `/health` | Server status |
+
+All requests require `Authorization: Bearer <token>` header.
+
+### Example
+
+```bash
+# List what's available
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/credentials
+
+# Get a specific key (must be in allowed list)
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/credentials/OPENAI_API_KEY
+```
 
 ## Adding a Provider
 

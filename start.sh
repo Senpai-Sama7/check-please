@@ -30,6 +30,7 @@ for arg in "$@"; do
         --simple|-s) MODE="simple" ;;
         --web|-w) MODE="web" ;;
         --guide) MODE="guide" ;;
+        --agent-api|-a) MODE="agent-api" ;;
         --dry-run) DRY_RUN=true ;;
         --help|-h) SHOW_HELP=true ;;
         *) EXTRA_ARGS+=("$arg") ;;
@@ -54,6 +55,7 @@ if $SHOW_HELP; then
     printf "  ./start.sh --web        Web browser — visual interface\n"
     printf "  ./start.sh --tui        Terminal UI — rich visual interface\n"
     printf "  ./start.sh --guide      Quick start — first-time tutorial\n"
+    printf "  ./start.sh --agent-api   Credential broker for AI agents\n"
     printf "  ./start.sh --dry-run    Preview what would be audited\n"
     printf "  ./start.sh --help       Show this help\n"
     printf "\n${BOLD}For beginners:${NC}\n"
@@ -162,6 +164,11 @@ case "$MODE" in
     guide)
         echo ""
         python "$DIR/quick_start_guide.py"
+        exit 0
+        ;;
+    agent-api)
+        echo ""
+        python "$DIR/agent_api.py" "$ENV_FILE"
         exit 0
         ;;
 esac
