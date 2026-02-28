@@ -54,46 +54,16 @@ info "Setting up Python environment..."
 python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
+"$INSTALL_DIR/.venv/bin/pip" install --quiet pywebview
 ok "Dependencies installed"
 
 # ── Desktop launcher script ──
-cat > "$BIN_DIR/$APP_NAME-desktop" << 'LAUNCHER'
+cat > "$BIN_DIR/$APP_NAME-desktop" << LAUNCHER
 #!/usr/bin/env bash
 set -euo pipefail
-APP_DIR="$HOME/.local/share/check-please"
-PYTHON="$APP_DIR/.venv/bin/python"
-URL="http://127.0.0.1:8457"
-
-# Kill any existing instance on our port
-fuser -k 8457/tcp 2>/dev/null || true
-sleep 0.2
-
-# Start web server in background
-cd "$APP_DIR"
-"$PYTHON" simple_web.py &
-SERVER_PID=$!
-
-# Wait for server to be ready
-for i in $(seq 1 30); do
-    if curl -s -o /dev/null "$URL" 2>/dev/null; then break; fi
-    sleep 0.1
-done
-
-# Open in app mode (chromium/chrome) or fall back to default browser
-open_app_window() {
-    for browser in chromium chromium-browser google-chrome google-chrome-stable; do
-        if command -v "$browser" >/dev/null 2>&1; then
-            "$browser" --app="$URL" --new-window 2>/dev/null &
-            return 0
-        fi
-    done
-    return 1
-}
-
-open_app_window || xdg-open "$URL" 2>/dev/null || "$PYTHON" -m webbrowser "$URL"
-
-# Keep running until server exits
-wait $SERVER_PID 2>/dev/null
+APP_DIR="$INSTALL_DIR"
+cd "\$APP_DIR"
+exec "\$APP_DIR/.venv/bin/python" desktop_app.py
 LAUNCHER
 chmod +x "$BIN_DIR/$APP_NAME-desktop"
 ok "Created launcher at $BIN_DIR/$APP_NAME-desktop"
