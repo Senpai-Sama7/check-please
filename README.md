@@ -5,24 +5,70 @@ Credential audit pipeline — organizes a messy `.env` file and validates API ke
 ## Quick Start
 
 ```bash
-./start.sh        # CLI pipeline
-./start.sh --tui  # Terminal UI
-./check_please    # One-click TUI launcher
+./start.sh              # CLI pipeline
+./start.sh --tui        # Terminal UI
+./start.sh --dry-run    # Preview what would be audited
+./start.sh --help       # Full usage docs
+./check_please          # One-click TUI launcher
 ```
 
 The script handles venv setup, dependency installation, and runs the full pipeline.
 
+## CLI
+
+```bash
+# Full audit with table + summary
+python -m credential_auditor --env .env
+
+# JSON to stdout (pipe to jq, scripts, etc.)
+python -m credential_auditor --json --env .env
+
+# Preview without API calls
+python -m credential_auditor --dry-run --env .env
+
+# Quiet mode — exit code only (0=all valid, 1=issues, 2=config error)
+python -m credential_auditor --quiet --env .env
+
+# Filter by provider
+python -m credential_auditor --env .env --provider openai --provider github
+
+# Save report to file
+python -m credential_auditor --env .env --output report.json
+
+# List all providers with key patterns
+python -m credential_auditor --list-providers
+
+# Self-test (7 invariants)
+python -m credential_auditor --self-test
+
+# Version
+python -m credential_auditor --version
+```
+
 ## TUI
 
-A Textual-based terminal UI with four screens:
+A Textual-based terminal UI with five screens:
 
 | Key | Screen | Description |
 |-----|--------|-------------|
-| `d` | Dashboard | Stat cards, full audit results table, action buttons |
-| `a` | Audit | Run the full pipeline with live progress and log |
-| `p` | Report | Drill into results by provider, by status, or raw JSON |
-| `?` | Help | Show keybindings |
+| `d` | Dashboard | 8 stat cards, full audit results table, action buttons |
+| `a` | Audit | Run the full pipeline with color-coded live progress |
+| `p` | Report | Summary stats, drill by provider, by status, raw JSON |
+| `?` | Help | Keybindings and CLI equivalents |
 | `q` | Quit | Exit |
+
+### Dashboard Stat Cards
+
+| Card | Description |
+|------|-------------|
+| TOTAL KEYS | Number of credentials audited |
+| PROVIDERS | Available provider count (16) |
+| VALID | Keys that passed validation |
+| DEAD | Keys that failed auth |
+| AUTO-DETECT | Keys matched by key pattern (not env var name) |
+| CACHE HIT% | Validation cache hit rate |
+| AVG LATENCY | Average API call latency |
+| LAST AUDIT | Timestamp of last audit run |
 
 The Dashboard "Organize" button pushes a sub-screen that runs `.env` organization. Press `Escape` to return from any sub-screen.
 
@@ -52,7 +98,7 @@ The Dashboard "Organize" button pushes a sub-screen that runs `.env` organizatio
 | Groq | `/openai/v1/models` | `gsk_*` |
 | HuggingFace | `/api/whoami-v2` | `hf_*` |
 | Mistral | `/v1/models` | alphanumeric |
-| NVIDIA | `/v1/models` | `nvapi-*` |
+| NVIDIA | `/v2/nvcf/functions` | `nvapi-*` |
 | OpenAI | `/v1/models` | `sk-*` |
 | OpenRouter | `/api/v1/auth/key` | `sk-or-v1-*` |
 | SendGrid | `/v3/user/profile` | `SG.*.*` |
@@ -78,6 +124,9 @@ The Dashboard "Organize" button pushes a sub-screen that runs `.env` organizatio
 | Auto-detect by key pattern | If env var name doesn't match a provider, tries matching the key value against all provider patterns |
 | Failed-provider bail | Skips a provider after 3 consecutive auth failures |
 | Audit summary | Aggregate stats (valid/failed/errors, cache hits, auto-detected, providers skipped, avg latency) |
+| Dry run | Preview matched credentials without making API calls |
+| JSON stdout | Pipe audit results to jq, scripts, or other tools |
+| Quiet mode | Exit code only — for CI/CD pipelines |
 
 ## Adding a Provider
 
