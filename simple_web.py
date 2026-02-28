@@ -371,8 +371,8 @@ tr:hover td{background:rgba(129,140,248,.04)}
     </div>
     <div id="lock-login" style="display:none">
       <p id="lock-greeting">Sign in to your vault.</p>
-      <div id="account-picker" style="display:none;margin-bottom:14px">
-        <div class="input-group"><label>Account</label><select id="login-user" onchange="onUserPick()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:10px 14px;font-size:.875rem;font-family:var(--font);width:100%"></select></div>
+      <div id="account-picker" style="margin-bottom:14px">
+        <div class="input-group"><label>Username</label><input type="text" id="login-user-input" placeholder="Enter username" style="display:none"><select id="login-user" onchange="onUserPick()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:10px 14px;font-size:.875rem;font-family:var(--font);width:100%"></select></div>
       </div>
       <div class="input-group"><label>Password</label><input type="password" id="login-pass" placeholder="Enter password" onkeydown="if(event.key==='Enter')unlock()"></div>
       <div class="lock-err" id="login-err"></div>
@@ -932,24 +932,27 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
 // ── Account ──
 async function checkAccount(){
   const d=await api('/api/account/status');
-  if(d.users&&d.users.length){
-    E('lock-setup').style.display='none';E('lock-login').style.display='block';
-    const sel=E('login-user');sel.innerHTML='';
-    E('account-picker').style.display='block';
-    d.users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});
-    E('lock-greeting').textContent=d.users.length===1?'Welcome back.':'Choose an account to sign in.';
+  if(d.users&&d.users.length){populateLogin(d.users);E('lock-setup').style.display='none';E('lock-login').style.display='block';
     if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';
   }else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
+function populateLogin(users){
+  const sel=E('login-user'),inp=E('login-user-input');sel.innerHTML='';
+  if(users&&users.length){sel.style.display='';inp.style.display='none';users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});
+    E('lock-greeting').textContent=users.length===1?'Welcome back.':'Choose an account.';
+  }else{sel.style.display='none';inp.style.display='';inp.value='';E('lock-greeting').textContent='Sign in to your vault.';}
+}
+function getLoginUser(){const sel=E('login-user'),inp=E('login-user-input');return sel.style.display!=='none'?sel.value:inp.value.trim();}
 function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style.display='none';E('lock-setup').style.display='block';}
-function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';checkAccount();}
+function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';
+  api('/api/account/status').then(d=>populateLogin(d.users||[]));}
 function onUserPick(){E('login-err').textContent='';}
 async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
-async function unlock(){const pw=E('login-pass').value,user=E('login-user').value;if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
+async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
 function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
 function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
-async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=E('login-user').value;if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
+async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=getLoginUser();if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
 async function nukeAccount(){const d=await api('/api/account/nuke',{method:'POST'});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
 
 async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
