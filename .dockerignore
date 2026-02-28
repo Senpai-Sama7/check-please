@@ -1,0 +1,16 @@
+.git
+.venv
+.env
+.env.*
+__pycache__
+*.pyc
+dist
+*.egg-info
+.mypy_cache
+.github
+screenshots
+tests
+audit.log
+audit_report.json
+Dockerfile
+.dockerignore

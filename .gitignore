@@ -17,6 +17,7 @@ __pycache__/
 .kiro/
 .serena/
 .mypy_cache/
+.pytest_cache/
 screenshots/
 audit.log
 
