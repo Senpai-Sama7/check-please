@@ -2,17 +2,32 @@
 
 Credential audit pipeline — organizes a messy `.env` file and validates API keys against live provider endpoints.
 
-## Quick Start
+## Install
 
 ```bash
-./start.sh              # CLI pipeline
+pip install .           # core (httpx, rich, python-dotenv)
+pip install ".[tui]"    # + Textual TUI
+```
+
+After install, `check-please` is available as a command:
+
+```bash
+check-please --env .env              # full audit
+check-please --json --env .env       # JSON to stdout
+check-please --dry-run --env .env    # preview without API calls
+```
+
+## Quick Start (no install)
+
+```bash
+./start.sh              # CLI pipeline (handles venv + deps)
 ./start.sh --tui        # Terminal UI
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
 ./check_please          # One-click TUI launcher
 ```
 
-The script handles venv setup, dependency installation, and runs the full pipeline.
+`start.sh` handles venv setup, dependency installation, and runs the full pipeline.
 
 ## CLI
 
