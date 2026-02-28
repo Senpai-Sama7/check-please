@@ -316,7 +316,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <h1><span>Check Please</span></h1>
     <div id="lock-setup">
       <p>Create a password to protect your vault. Everything is encrypted locally on this device.</p>
-      <div class="input-group"><label>Display Name</label><input type="text" id="setup-name" placeholder="Your name"></div>
+      <div class="input-group"><label>Username</label><input type="text" id="setup-name" placeholder="Choose a username"></div>
       <div class="input-group"><label>Create Password</label><input type="password" id="setup-pass" placeholder="Choose a strong password"></div>
       <div class="input-group"><label>Confirm Password</label><input type="password" id="setup-pass2" placeholder="Confirm password"></div>
       <div class="lock-err" id="setup-err"></div>
@@ -524,7 +524,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <div class="panel">
       <div class="panel-header"><h2>Account</h2></div>
       <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="input-group"><label>Display Name</label><input type="text" id="set-name" readonly></div>
+        <div class="input-group"><label>Username</label><input type="text" id="set-name" readonly></div>
         <div class="input-group"><label>Account Created</label><input type="text" id="set-created" readonly></div>
         <div class="input-group"><label>Change Password</label>
           <input type="password" id="set-old-pass" placeholder="Current password">
