@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   check_please — Premium TUI Theme
+   check_please — Premium TUI Theme (Tokyo Night)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Global ──────────────────────────────────────────────────────────────── */
@@ -35,16 +35,20 @@ Footer {
 
 /* ── Stat Cards ──────────────────────────────────────────────────────────── */
 
-#stat-row {
+#stat-row, #stat-row-2 {
     height: auto;
-    padding: 1 2;
+    padding: 0 2;
     align: center middle;
+}
+
+#stat-row {
+    padding-top: 1;
 }
 
 .stat-card {
     width: 1fr;
     height: 5;
-    margin: 0 1;
+    margin: 0 1 1 1;
     padding: 1 2;
     background: #1a1b26;
     border: tall #3b4261;
@@ -74,6 +78,10 @@ Footer {
 
 .card-red .stat-value {
     color: #f7768e;
+}
+
+.card-blue .stat-value {
+    color: #7aa2f7;
 }
 
 /* ── Data Tables ─────────────────────────────────────────────────────────── */
@@ -168,6 +176,24 @@ TabbedContent {
 
 TabPane {
     padding: 1;
+}
+
+/* ── Report Summary ──────────────────────────────────────────────────────── */
+
+#report-summary {
+    padding: 1 2;
+    background: #1a1b26;
+    border: tall #3b4261;
+    margin: 1 0;
+}
+
+/* ── Help Screen ─────────────────────────────────────────────────────────── */
+
+#help-content {
+    padding: 1 2;
+    background: #1a1b26;
+    border: tall #3b4261;
+    margin: 1 2;
 }
 
 /* ── Scrollbars ──────────────────────────────────────────────────────────── */

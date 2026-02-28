@@ -16,14 +16,47 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
 TUI_MODE=false
+DRY_RUN=false
+SHOW_HELP=false
+EXTRA_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --tui|-t) TUI_MODE=true ;;
+        --dry-run) DRY_RUN=true ;;
+        --help|-h) SHOW_HELP=true ;;
+        *) EXTRA_ARGS+=("$arg") ;;
     esac
 done
+
+if $SHOW_HELP; then
+    printf "${BOLD}check_please${NC} — credential audit pipeline\n\n"
+    printf "${BOLD}Usage:${NC}\n"
+    printf "  ./start.sh              Run full CLI pipeline\n"
+    printf "  ./start.sh --tui        Launch terminal UI\n"
+    printf "  ./start.sh --dry-run    Show what would be audited\n"
+    printf "  ./start.sh --help       Show this help\n"
+    printf "\n${BOLD}Pipeline steps:${NC}\n"
+    printf "  1. Find Python 3.10+\n"
+    printf "  2. Create/verify venv\n"
+    printf "  3. Install dependencies\n"
+    printf "  4. Verify .env exists\n"
+    printf "  5. Check .env permissions\n"
+    printf "  6. Organize .env → .env.organized\n"
+    printf "  7. Run auditor self-test\n"
+    printf "  8. Audit credentials against live APIs\n"
+    printf "  9. Prune dead keys from .env.organized\n"
+    printf "\n${BOLD}CLI flags (passed through):${NC}\n"
+    printf "  --json          Print JSON to stdout\n"
+    printf "  --quiet         Suppress table output\n"
+    printf "  --list-providers  List available providers\n"
+    printf "  --version       Show version\n"
+    printf "  --dry-run       Show matched credentials without API calls\n"
+    exit 0
+fi
 
 step=0
 fail() { printf '\n\033[0;31m✗ FAILED at step %d: %s\033[0m\n' "$step" "$1" >&2; exit 1; }
@@ -100,6 +133,12 @@ if $TUI_MODE; then
     exit 0
 fi
 
+# ── Dry run: show what would be audited ───────────────────────
+if $DRY_RUN; then
+    python -m credential_auditor --dry-run --env "$ENV_FILE"
+    exit 0
+fi
+
 # ── Step 5: File permissions check ────────────────────────────
 step=$((step+1))
 info "Checking .env permissions..."
@@ -159,7 +198,8 @@ if [[ -f "$REPORT" && -f "$ORGANIZED" ]]; then
     info "Pruning dead keys (auth_failed) from .env.organized..."
     pruned=$(python3 -c "
 import json, re
-report = json.load(open('$REPORT'))
+raw = json.load(open('$REPORT'))
+report = raw.get('results', raw) if isinstance(raw, dict) else raw
 dead = [r['env_var'] for r in report if r['status'] in ('auth_failed', 'invalid_format')]
 if not dead:
     print('0')

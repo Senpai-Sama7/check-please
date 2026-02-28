@@ -10,12 +10,13 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import time
 from pathlib import Path
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import Screen
@@ -73,6 +74,19 @@ class StatCard(Static):
             pass
 
 
+def _load_report_data() -> tuple[list, dict | None]:
+    """Load report, return (results_list, summary_or_None)."""
+    if not REPORT_PATH.exists():
+        return [], None
+    try:
+        raw = json.loads(REPORT_PATH.read_text())
+    except Exception:
+        return [], None
+    if isinstance(raw, dict):
+        return raw.get("results", []), raw.get("summary")
+    return raw, None
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Dashboard Screen
 # ═══════════════════════════════════════════════════════════════════════════
@@ -88,11 +102,14 @@ class DashboardScreen(Screen):
         with VerticalScroll(id="dashboard-scroll"):
             yield Label("  Dashboard", classes="screen-title")
             with Horizontal(id="stat-row"):
-                yield StatCard("ENV ENTRIES", card_id="stat-entries")
+                yield StatCard("TOTAL KEYS", card_id="stat-entries")
                 yield StatCard("PROVIDERS", card_id="stat-providers")
-                yield StatCard("VALID KEYS", card_id="stat-valid", classes="card-green")
-                yield StatCard("DEAD KEYS", card_id="stat-dead", classes="card-red")
+                yield StatCard("VALID", card_id="stat-valid", classes="card-green")
+                yield StatCard("DEAD", card_id="stat-dead", classes="card-red")
+            with Horizontal(id="stat-row-2"):
+                yield StatCard("AUTO-DETECT", card_id="stat-autodetect", classes="card-blue")
                 yield StatCard("CACHE HIT%", card_id="stat-cache")
+                yield StatCard("AVG LATENCY", card_id="stat-latency")
                 yield StatCard("LAST AUDIT", card_id="stat-last")
             yield Rule()
             yield Label("  Audit Results", classes="section-title")
@@ -118,43 +135,39 @@ class DashboardScreen(Screen):
         self._load_results()
 
     def _load_stats(self) -> None:
-        # Env entries
-        entries = "—"
-        try:
-            if ENV_ORG_PATH.exists():
-                from dotenv import dotenv_values
-                entries = str(len(dotenv_values(ENV_ORG_PATH)))
-            elif ENV_PATH.exists():
-                from dotenv import dotenv_values
-                entries = str(len(dotenv_values(ENV_PATH)))
-        except Exception:
-            pass
-        self.query_one("#stat-entries", StatCard).update_value(entries)
+        data, summary = _load_report_data()
+
+        # From summary if available
+        if summary:
+            self.query_one("#stat-entries", StatCard).update_value(str(summary.get("total_keys", len(data))))
+            self.query_one("#stat-valid", StatCard).update_value(str(summary.get("valid", 0)))
+            self.query_one("#stat-autodetect", StatCard).update_value(str(summary.get("auto_detected", 0)))
+            avg = summary.get("avg_latency_ms", 0)
+            self.query_one("#stat-latency", StatCard).update_value(f"{avg:.0f}ms" if avg else "—")
+        else:
+            total = len(data)
+            valid = sum(1 for r in data if r.get("status") == "valid")
+            self.query_one("#stat-entries", StatCard).update_value(str(total) if total else "—")
+            self.query_one("#stat-valid", StatCard).update_value(str(valid))
+            self.query_one("#stat-autodetect", StatCard).update_value("—")
+            self.query_one("#stat-latency", StatCard).update_value("—")
+
+        dead = sum(1 for r in data if r.get("status") in ("auth_failed", "suspended_account"))
+        self.query_one("#stat-dead", StatCard).update_value(str(dead))
 
         # Providers
         from credential_auditor.providers import Provider, discover_providers
         discover_providers()
         self.query_one("#stat-providers", StatCard).update_value(str(len(Provider.get_registry())))
 
-        # From report
-        valid = dead = 0
+        # Last audit time
         last = "never"
         if REPORT_PATH.exists():
             try:
-                raw = json.loads(REPORT_PATH.read_text())
-                data = raw.get("results", raw) if isinstance(raw, dict) else raw
-                for r in data:
-                    if r.get("status") == "valid":
-                        valid += 1
-                    elif r.get("status") in ("auth_failed", "suspended_account"):
-                        dead += 1
-                mtime = REPORT_PATH.stat().st_mtime
                 import datetime
-                last = datetime.datetime.fromtimestamp(mtime).strftime("%b %d %H:%M")
+                last = datetime.datetime.fromtimestamp(REPORT_PATH.stat().st_mtime).strftime("%b %d %H:%M")
             except Exception:
                 pass
-        self.query_one("#stat-valid", StatCard).update_value(str(valid))
-        self.query_one("#stat-dead", StatCard).update_value(str(dead))
         self.query_one("#stat-last", StatCard).update_value(last)
 
         # Cache stats
@@ -169,13 +182,7 @@ class DashboardScreen(Screen):
     def _load_results(self) -> None:
         table = self.query_one("#results-table", DataTable)
         table.clear()
-        if not REPORT_PATH.exists():
-            return
-        try:
-            raw = json.loads(REPORT_PATH.read_text())
-            data = raw.get("results", raw) if isinstance(raw, dict) else raw
-        except Exception:
-            return
+        data, _ = _load_report_data()
         for r in data:
             fp = r.get("key_fingerprint", {})
             fp_str = f"{fp.get('prefix', '?')}...{fp.get('suffix', '?')} ({fp.get('length', '?')})"
@@ -202,7 +209,7 @@ class DashboardScreen(Screen):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Audit Screen — live async audit with per-provider progress
+#  Audit Screen — live async audit with color-coded output
 # ═══════════════════════════════════════════════════════════════════════════
 class AuditScreen(Screen):
     BINDINGS = [
@@ -223,8 +230,13 @@ class AuditScreen(Screen):
             yield ProgressBar(id="audit-progress", total=100, show_eta=False)
             yield Rule()
             yield Label("  Live Output", classes="section-title")
-            yield Log(id="audit-log", auto_scroll=True)
+            yield Log(id="audit-log", auto_scroll=True, markup=True)
         yield Footer()
+
+    def on_screen_resume(self) -> None:
+        # Reset UI state on re-entry (but keep log if audit ran)
+        if not self.is_running:
+            self.query_one("#btn-start", Button).disabled = False
 
     @on(Button.Pressed, "#btn-start")
     def on_start(self) -> None:
@@ -242,12 +254,14 @@ class AuditScreen(Screen):
     @work(exclusive=True)
     async def run_audit(self) -> None:
         self.is_running = True
+        self.query_one("#btn-start", Button).disabled = True
         log = self.query_one("#audit-log", Log)
         progress = self.query_one("#audit-progress", ProgressBar)
         status_label = self.query_one("#audit-status", Label)
         log.clear()
         progress.progress = 0
         status_label.update("")
+        t0 = time.monotonic()
 
         try:
             from rich.console import Console as RichConsole
@@ -256,61 +270,64 @@ class AuditScreen(Screen):
             # Step 1: Organize
             status_label.update("⏳ Organizing .env...")
             progress.progress = 5
-            log.write_line("── Organizing .env ──")
+            log.write_line("[bold cyan]── Organizing .env ──[/]")
             if ENV_PATH.exists():
                 import organize_env
                 result = await asyncio.to_thread(organize_env.organize, ENV_PATH, ENV_ORG_PATH)
-                log.write_line(f"✓ Organized {result['total']} entries → {result['categories']} categories")
+                log.write_line(f"[green]✓[/] Organized {result['total']} entries → {result['categories']} categories")
                 if result.get("unparseable", 0):
-                    log.write_line(f"⚠ {result['unparseable']} unparseable lines appended as comments")
+                    log.write_line(f"[yellow]⚠[/] {result['unparseable']} unparseable lines appended as comments")
             else:
-                log.write_line("⚠ No .env file found")
+                log.write_line("[yellow]⚠ No .env file found[/]")
             progress.progress = 15
 
             # Step 2: Self-test
             status_label.update("⏳ Running self-test...")
-            log.write_line("\n── Self-test ──")
+            log.write_line("\n[bold cyan]── Self-test ──[/]")
             from credential_auditor.self_test import run_self_test
             ok = await run_self_test(console=quiet)
-            log.write_line(f"✓ Self-test: {'all passed' if ok else 'FAILURES'}")
+            log.write_line(f"[green]✓[/] Self-test: {'all passed' if ok else '[red]FAILURES[/]'}")
             progress.progress = 25
 
             # Step 3: Audit
             status_label.update("⏳ Auditing credentials...")
-            log.write_line("\n── Credential Audit ──")
+            log.write_line("\n[bold cyan]── Credential Audit ──[/]")
             audit_path = ENV_ORG_PATH if ENV_ORG_PATH.exists() else ENV_PATH
             from credential_auditor.orchestrator import audit
             results = await audit(audit_path, console=quiet)
             progress.progress = 85
 
-            # Log results
+            # Color-coded results
             valid = sum(1 for r in results if r.status == "valid")
             dead = sum(1 for r in results if r.status in ("auth_failed", "suspended_account"))
             for r in results:
-                icon, _ = STATUS_STYLES.get(r.status, ("?", "white"))
+                icon, color = STATUS_STYLES.get(r.status, ("?", "white"))
                 fp = f"{r.key_fingerprint.prefix}...{r.key_fingerprint.suffix}"
                 detail = r.account_info or r.error_detail or ""
-                log.write_line(f"  {icon} {r.provider:12s} {r.env_var:28s} {r.status:16s} {detail}")
+                log.write_line(f"  [{color}]{icon}[/] {r.provider:12s} {r.env_var:28s} [{color}]{r.status:16s}[/] {detail}")
 
-            log.write_line(f"\n✓ {len(results)} keys audited — {valid} valid, {dead} dead")
+            log.write_line(f"\n[bold green]✓[/] {len(results)} keys audited — [green]{valid} valid[/], [red]{dead} dead[/]")
 
-            # Show new feature stats
+            # Summary stats
             summary = getattr(results, "summary", None)
             if summary:
+                parts = []
                 if summary.cache_hits:
-                    log.write_line(f"  ⚡ Cache: {summary.cache_hits} hits, {summary.cache_misses} misses")
+                    parts.append(f"⚡ cache {summary.cache_hits}/{summary.cache_hits + summary.cache_misses}")
                 if summary.auto_detected:
-                    log.write_line(f"  🔍 Auto-detected {summary.auto_detected} keys by pattern")
+                    parts.append(f"🔍 {summary.auto_detected} auto-detected")
                 if summary.providers_skipped:
-                    log.write_line(f"  ⏭ Bailed on {summary.providers_skipped} failing providers")
+                    parts.append(f"⏭ {summary.providers_skipped} bailed")
+                avg = round(summary.total_latency_ms / summary.total_keys, 0) if summary.total_keys else 0
+                parts.append(f"⏱ avg {avg:.0f}ms")
+                log.write_line(f"  [dim]{' · '.join(parts)}[/]")
 
             # Step 4: Write report
             status_label.update("⏳ Writing report...")
             from credential_auditor.output import write_json
             summary = getattr(results, "summary", None)
             await asyncio.to_thread(write_json, results, REPORT_PATH, False, quiet, summary)
-            log.write_line(f"✓ Report written → {REPORT_PATH.name}")
-            log.write_line(f"✓ Audit log → audit.log")
+            log.write_line(f"[green]✓[/] Report → {REPORT_PATH.name}")
             progress.progress = 95
 
             # Step 5: Prune dead keys
@@ -320,17 +337,26 @@ class AuditScreen(Screen):
                 out = [l for l in lines if not any(l.startswith(v + "=") for v in dead_vars)]
                 if len(out) < len(lines):
                     ENV_ORG_PATH.write_text("".join(out))
-                    log.write_line(f"✓ Pruned {len(lines) - len(out)} dead keys from .env.organized")
+                    log.write_line(f"[green]✓[/] Pruned {len(lines) - len(out)} dead keys from .env.organized")
 
+            elapsed = time.monotonic() - t0
             progress.progress = 100
-            status_label.update(f"✅ Complete — {valid} valid, {dead} dead, {len(results)} total")
-            log.write_line("\n── Done ──")
+            status_label.update(f"✅ Complete — {valid} valid, {dead} dead, {len(results)} total ({elapsed:.1f}s)")
+            log.write_line(f"\n[bold cyan]── Done ({elapsed:.1f}s) ──[/]")
+
+            # Toast notification
+            self.app.notify(
+                f"{valid} valid, {dead} dead, {len(results)} total",
+                title="Audit Complete",
+                timeout=8,
+            )
 
         except Exception as e:
             status_label.update(f"❌ Error: {e}")
-            log.write_line(f"\n❌ {type(e).__name__}: {e}")
+            log.write_line(f"\n[bold red]❌ {type(e).__name__}: {e}[/]")
         finally:
             self.is_running = False
+            self.query_one("#btn-start", Button).disabled = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -372,7 +398,7 @@ class OrganizeScreen(Screen):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Report Screen — drill into audit_report.json
+#  Report Screen — drill into audit_report.json with Summary tab
 # ═══════════════════════════════════════════════════════════════════════════
 class ReportScreen(Screen):
     BINDINGS = [Binding("escape", "go_back", "Back", priority=True)]
@@ -385,6 +411,8 @@ class ReportScreen(Screen):
         with VerticalScroll(id="report-scroll"):
             yield Label("  Audit Report Detail", classes="screen-title")
             with TabbedContent():
+                with TabPane("Summary", id="tab-summary"):
+                    yield Static(id="report-summary")
                 with TabPane("By Provider", id="tab-provider"):
                     yield DataTable(id="report-provider-table")
                 with TabPane("By Status", id="tab-status"):
@@ -406,35 +434,62 @@ class ReportScreen(Screen):
         self._load_report()
 
     def _load_report(self) -> None:
+        data, summary = _load_report_data()
+
+        # Summary tab
+        sw = self.query_one("#report-summary", Static)
+        if summary:
+            valid = summary.get("valid", 0)
+            failed = summary.get("failed", 0)
+            errors = summary.get("errors", 0)
+            total = summary.get("total_keys", 0)
+            pct = f"{valid/total*100:.0f}%" if total else "—"
+            lines = [
+                "",
+                f"  [bold]Audit Summary[/]",
+                f"  {'─' * 40}",
+                f"  Total keys audited:    [bold]{total}[/]",
+                f"  Valid:                 [green]{valid}[/]  ({pct})",
+                f"  Failed:               [red]{failed}[/]",
+                f"  Errors:               [yellow]{errors}[/]",
+                f"  {'─' * 40}",
+                f"  Providers checked:     {summary.get('providers_checked', '—')}",
+                f"  Providers skipped:     {summary.get('providers_skipped', 0)}",
+                f"  Cache hits:            {summary.get('cache_hits', 0)}",
+                f"  Cache misses:          {summary.get('cache_misses', 0)}",
+                f"  Auto-detected:         {summary.get('auto_detected', 0)}",
+                f"  Avg latency:           {summary.get('avg_latency_ms', 0):.0f}ms",
+                "",
+            ]
+            sw.update("\n".join(lines))
+        elif data:
+            valid = sum(1 for r in data if r.get("status") == "valid")
+            sw.update(f"\n  [dim]No summary available (legacy format). {len(data)} results, {valid} valid.[/]\n")
+        else:
+            sw.update("\n  [dim]No report found. Run an audit first.[/]\n")
+
+        # Provider table
         pt = self.query_one("#report-provider-table", DataTable)
         pt.clear()
         st = self.query_one("#report-status-table", DataTable)
         st.clear()
         jlog = self.query_one("#report-json", Log)
         jlog.clear()
-        if not REPORT_PATH.exists():
-            return
-        try:
-            raw = json.loads(REPORT_PATH.read_text())
-        except Exception:
-            return
-        # Handle both formats: list (old) or {summary, results} (new)
-        data = raw.get("results", raw) if isinstance(raw, dict) else raw
 
-        # Provider table
+        if not data:
+            return
+
         from collections import Counter
         providers: dict[str, Counter] = {}
         for r in data:
             p = r.get("provider", "?")
-            if p not in providers:
-                providers[p] = Counter()
-            providers[p][r.get("status", "?")] += 1
+            providers.setdefault(p, Counter())[r.get("status", "?")] += 1
         for p, counts in sorted(providers.items()):
             total = sum(counts.values())
-            valid = counts.get("valid", 0)
-            failed = counts.get("auth_failed", 0) + counts.get("suspended_account", 0)
-            errors = counts.get("network_error", 0)
-            pt.add_row(p, str(total), str(valid), str(failed), str(errors))
+            v = counts.get("valid", 0)
+            f = counts.get("auth_failed", 0) + counts.get("suspended_account", 0)
+            e = counts.get("network_error", 0)
+            pt.add_row(p, str(total), str(v), str(f), str(e))
 
         # Status table
         status_groups: dict[str, list[str]] = {}
@@ -445,9 +500,62 @@ class ReportScreen(Screen):
             unique = sorted(set(provs))
             st.add_row(s, str(len(provs)), ", ".join(unique))
 
-        # Raw JSON (show full payload including summary if present)
-        jlog = self.query_one("#report-json", Log)
-        jlog.write(json.dumps(raw, indent=2))
+        # Raw JSON
+        try:
+            raw = json.loads(REPORT_PATH.read_text())
+            jlog.write(json.dumps(raw, indent=2))
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Help Screen
+# ═══════════════════════════════════════════════════════════════════════════
+class HelpScreen(Screen):
+    BINDINGS = [
+        Binding("escape", "go_back", "Back", priority=True),
+        Binding("question_mark", "go_back", "Back", priority=True),
+    ]
+
+    def action_go_back(self) -> None:
+        self.app.switch_mode("dashboard")
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with VerticalScroll(id="help-scroll"):
+            yield Static(
+                "\n"
+                "  [bold cyan]check_please — Keybindings[/]\n"
+                "  ─────────────────────────────────────\n"
+                "\n"
+                "  [bold]Navigation[/]\n"
+                "  [cyan]d[/]         Dashboard\n"
+                "  [cyan]a[/]         Run Audit\n"
+                "  [cyan]p[/]         Report\n"
+                "  [cyan]?[/]         This help screen\n"
+                "  [cyan]q[/]         Quit\n"
+                "  [cyan]Escape[/]    Back / close\n"
+                "\n"
+                "  [bold]Dashboard[/]\n"
+                "  [cyan]o[/]         Organize .env\n"
+                "  [cyan]r[/]         Refresh stats\n"
+                "\n"
+                "  [bold]Audit Screen[/]\n"
+                "  Click [bold]Start Audit[/] to run the full pipeline:\n"
+                "  organize → self-test → audit → report → prune\n"
+                "\n"
+                "  [bold]Report Screen[/]\n"
+                "  [cyan]Tab[/]       Switch between Summary / Provider / Status / JSON\n"
+                "\n"
+                "  [bold]CLI Equivalents[/]\n"
+                "  [dim]python -m credential_auditor --env .env[/]\n"
+                "  [dim]python -m credential_auditor --list-providers[/]\n"
+                "  [dim]python -m credential_auditor --dry-run --env .env[/]\n"
+                "  [dim]python -m credential_auditor --json --env .env[/]\n"
+                "\n",
+                id="help-content",
+            )
+        yield Footer()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -464,6 +572,7 @@ class CheckPleaseApp(App):
         "dashboard": DashboardScreen,
         "audit": AuditScreen,
         "report": ReportScreen,
+        "help": HelpScreen,
     }
     DEFAULT_MODE = "dashboard"
 
@@ -471,16 +580,9 @@ class CheckPleaseApp(App):
         Binding("d", "switch_mode('dashboard')", "Dashboard", show=True),
         Binding("a", "switch_mode('audit')", "Audit", show=True),
         Binding("p", "switch_mode('report')", "Report", show=True),
+        Binding("question_mark", "switch_mode('help')", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
-        Binding("?", "toggle_help", "Help", show=True),
     ]
-
-    def action_toggle_help(self) -> None:
-        self.notify(
-            "[d] Dashboard  [a] Audit  [p] Report  [q] Quit",
-            title="Keybindings",
-            timeout=5,
-        )
 
 
 if __name__ == "__main__":
