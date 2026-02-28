@@ -186,6 +186,237 @@ check-please --self-test             # 7 invariants
 | Agent API | `./start.sh --agent-api` | HTTP broker for AI agents |
 | MCP | `./start.sh --agent-mcp` | MCP server for Claude Code, Copilot |
 
+---
+
+## User Manual
+
+This section is for everyone — no technical knowledge required.
+
+### Getting Started
+
+1. Run `./start.sh --web` (opens in your browser) or `./start.sh --desktop` (opens as a desktop app)
+2. The app opens at `http://localhost:8457`
+3. You'll see the account creation screen on first launch
+
+### Creating Your Account
+
+1. Pick a username and password (minimum 4 characters)
+2. Confirm your password and click "Create Account"
+3. A recovery key appears (looks like `ABCD-EFGH-IJKL-MNOP`) — **save this immediately**
+4. Click "Copy" to copy it to your clipboard, then paste it somewhere safe
+5. Click "I've Saved It — Continue" to enter the app
+
+> ⚠️ Your recovery key is shown once and never again. If you lose your password AND your recovery key, your vault data cannot be recovered. This is by design — nobody (not even us) can access your data without your credentials.
+
+### Signing In
+
+- Enter your username and password, then click "Unlock"
+- If you have biometrics set up, click "Unlock with Biometrics" to use your phone instead
+- If you have multiple accounts, type your username or pick from the suggestions
+
+### The Dashboard
+
+After signing in, you'll see five pages in the left sidebar:
+
+| Page | What It Does |
+|------|-------------|
+| 📊 Dashboard | Overview with quick actions |
+| 🔍 Audit | Scan and validate your API keys |
+| 🔐 Password Vault | Store and manage passwords |
+| 📋 Providers | See all 16 supported API providers |
+| ⚙️ Settings | Account, biometrics, backups, security |
+
+### Password Vault
+
+Your vault stores passwords, API keys, and login credentials — all encrypted on your device.
+
+**Add a password:**
+1. Go to Password Vault → click "Add Entry"
+2. Fill in the site name, username, and password
+3. Click "Save"
+
+**Generate a strong password:**
+1. In the Add Entry form, click "Generate"
+2. A random strong password is created and filled in automatically
+3. Adjust length or settings if needed, then save
+
+**Import from another password manager:**
+1. Export your passwords as CSV from Chrome, 1Password, Bitwarden, etc.
+2. Go to Password Vault → click "Import CSV"
+3. Select your file — entries are imported into your vault
+
+**Export your vault:**
+- Click "Export CSV" to download all entries as a spreadsheet-compatible file
+
+### Auditing Your .env File
+
+The audit tool checks if your API keys are valid, expired, or misconfigured.
+
+1. Go to the Audit page
+2. Upload your `.env` file (or it auto-detects one in your project)
+3. Click "Run Audit" — each key is tested against its provider's API
+4. Results show ✅ Valid, ❌ Failed, or ⚠️ Warning for each key
+
+**Sort and filter results:**
+- Use the toolbar to sort by status or provider
+- Filter to show only valid, failed, or warning results
+- Check individual results or "Select All"
+
+**Remove bad keys:**
+- Check the keys you want to remove → click "Remove Selected"
+- They're removed from your `.env` file
+
+### Building a .env File
+
+Create a clean, organized `.env` file from your credentials:
+
+1. Go to Audit → click "Build .env"
+2. Check which providers/keys to include
+3. Click "Preview" to see what the file will look like
+4. Click "Download" to save it to your Downloads folder (with real values)
+5. Or click "Save" to write it directly as your project's `.env`
+
+The downloaded file is organized with section headers by provider for easy reading.
+
+### Biometric Unlock (Phone)
+
+Use your phone's fingerprint or face recognition to unlock — no password needed.
+
+**Set up:**
+1. Go to Settings → click "Set Up Biometrics"
+2. Your browser shows a QR code or Bluetooth prompt
+3. Scan with your phone and authenticate (fingerprint/face)
+4. Done — biometric is now linked to your account
+
+**Use it:**
+- On the sign-in screen, click "Unlock with Biometrics"
+- Authenticate on your phone when prompted
+- You're in — no password required
+
+**Works on the forgot password screen too** — if you forgot your password but have biometrics, just tap the biometric button to skip the recovery process entirely.
+
+> Note: Biometric auth uses your phone via QR code or Bluetooth. Works with any FIDO2-compatible phone (most modern Android and iPhone devices).
+
+### If You Forget Your Password
+
+**Option 1 — Biometrics (easiest):**
+Click "Unlock with Biometrics" on the sign-in or forgot password screen.
+
+**Option 2 — Recovery key:**
+1. Click "Forgot password?" on the sign-in screen
+2. Enter your recovery key (the `XXXX-XXXX-XXXX-XXXX` from account creation)
+3. Choose a new password
+4. Click "Reset Password" — your vault stays intact
+
+**Option 3 — Encrypted backup:**
+1. If you previously exported a backup (`.cpbackup` file), go to Settings
+2. Click "Import Encrypted Backup"
+3. Select your backup file and enter the backup password
+4. Your account and vault are fully restored
+
+**Option 4 — Emergency sheet:**
+If you printed an emergency recovery sheet, it has your recovery key and step-by-step instructions.
+
+**Last resort — Erase Everything:**
+On the forgot password screen, click "Erase Everything & Start Over." This permanently deletes your account and vault. Only use this if all other options are exhausted.
+
+### Encrypted Backups
+
+Backups protect you against data loss — device wipes, accidental deletion, hardware failure.
+
+**Create a backup:**
+1. Go to Settings → "Export Encrypted Backup"
+2. Enter a backup password (can be different from your account password)
+3. A `.cpbackup` file is saved to your Downloads folder
+
+**Restore from backup:**
+1. Go to Settings → "Import Encrypted Backup"
+2. Select your `.cpbackup` file
+3. Enter the backup password you used when creating it
+4. Your account and all vault entries are restored
+
+> 💡 Store backups somewhere safe — USB drive, cloud storage, or email them to yourself. The file is fully encrypted and useless without the backup password.
+
+### Emergency Recovery Sheet
+
+A printable document with your recovery instructions — your paper safety net.
+
+1. Go to Settings → "Print Emergency Sheet"
+2. A print dialog opens with a formatted recovery document
+3. Print it and store it somewhere physically secure (safe, lockbox, etc.)
+
+The sheet includes space to write your recovery key and step-by-step instructions for getting back into your account.
+
+### Logging Out
+
+Click the 🚪 Log Out button at the bottom of the sidebar. You'll be taken back to the sign-in screen.
+
+---
+
+## Security & Error Handling
+
+### Encryption
+
+- All account data and vault entries are encrypted with PBKDF2-HMAC-SHA256 (200,000 iterations)
+- Each account has a unique random salt (16 bytes)
+- Ciphertext integrity is verified with HMAC-SHA256 before decryption — tampered data is rejected immediately
+- Vault files are set to owner-read-only permissions (`chmod 600`)
+
+### Brute Force Protection
+
+- Failed password attempts trigger exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s (capped)
+- The lockout timer resets after a successful login
+- The UI shows "Too many attempts. Try again in Xs." when rate-limited
+
+### Security Headers
+
+Every response includes:
+- `X-Frame-Options: DENY` — prevents the app from being embedded in iframes (clickjacking)
+- `X-Content-Type-Options: nosniff` — prevents browsers from guessing content types
+- `Referrer-Policy: no-referrer` — no URL information leaks to other sites
+- `X-XSS-Protection: 1; mode=block` — legacy cross-site scripting filter
+
+### Error Handling
+
+| Scenario | What Happens |
+|----------|-------------|
+| Corrupt vault file | Returns empty vault — no crash, no data loss to other accounts |
+| Corrupt account file | Returns "account not found" — other accounts unaffected |
+| Missing data directory | Auto-created on startup (`~/.local/share/check-please/`) |
+| Missing accounts/vaults folders | Auto-created when first needed |
+| Wrong backup password | Clear error message — backup file is not modified or corrupted |
+| Invalid JSON in any data file | Caught silently, returns safe default (empty list or None) |
+| Server port already in use | Kill the old process with `fuser -k 8457/tcp` and relaunch |
+| Legacy single-account data | Auto-migrated to multi-account format on first login |
+| WebAuthn not supported | Falls back to opening your browser where it is supported |
+| Downloads folder missing | Auto-created before writing backup or .env files |
+
+### Self-Healing Mechanisms
+
+- **Directory auto-creation**: All required directories (`DATA_DIR`, `.accounts/`, `.vaults/`) are created automatically if missing — the app never fails because a folder doesn't exist
+- **Legacy migration**: Old single-account data (`.account.json`, `.vault.json`) is automatically migrated to the multi-account format (`.accounts/username.json`, `.vaults/username.json`) on first access — no manual steps needed
+- **Graceful corruption handling**: If any JSON data file becomes corrupt, the app returns a safe empty state instead of crashing. Your other accounts and data are unaffected
+- **Permission enforcement**: Vault and account files are automatically set to `600` (owner-read-only) every time they're saved, even if permissions were changed externally
+- **Shared data directory**: Desktop app and browser both read from `~/.local/share/check-please/`, so your data is always consistent regardless of how you launch the app
+
+### What's NOT Self-Healing (By Design)
+
+- **Lost password + lost recovery key + no backup** = data is gone. This is intentional — if there were a backdoor, it wouldn't be secure
+- **Deleted data files** = cannot be recovered without a backup. The app doesn't keep shadow copies
+- **Corrupted encrypted backup** = cannot be restored. Keep multiple backups if your data is critical
+
+### Recovery Priority (If You're Locked Out)
+
+| Priority | Method | What You Need |
+|----------|--------|--------------|
+| 1 | Password | Your account password |
+| 2 | Biometrics | Your registered phone nearby |
+| 3 | Recovery key | The XXXX-XXXX-XXXX-XXXX from account creation |
+| 4 | Encrypted backup | A `.cpbackup` file + the backup password |
+| 5 | Emergency sheet | The printed paper with your recovery key |
+
+---
+
 ## Security
 
 - No raw keys in any output — only fingerprints (`sk-p...89UA (164)`)
