@@ -51,7 +51,7 @@ ok "Copied project files"
 
 # Set up venv + deps
 info "Setting up Python environment..."
-python3 -m venv "$INSTALL_DIR/.venv"
+python3 -m venv --system-site-packages "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/.venv/bin/pip" install --quiet "$INSTALL_DIR"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet pywebview

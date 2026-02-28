@@ -34,7 +34,7 @@ def main() -> int:
         except Exception:
             time.sleep(0.1)
 
-    # Launch native window
+    # Launch native window (force GTK backend — most reliable on Linux)
     webview.create_window(
         "Check Please",
         url,
@@ -42,7 +42,7 @@ def main() -> int:
         height=800,
         min_size=(800, 600),
     )
-    webview.start()
+    webview.start(gui="gtk")
     server.shutdown()
     return 0
 
