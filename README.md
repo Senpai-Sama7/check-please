@@ -27,6 +27,8 @@ check-please --dry-run --env .env    # preview without API calls
 ./start.sh --tui        # Rich terminal UI (requires textual)
 ./start.sh --guide      # First-time tutorial
 ./start.sh --agent-api  # Credential broker for AI agents
+./start.sh --agent-env codex  # Launch agent with credentials injected
+./start.sh --agent-mcp  # MCP server for Claude Code, Copilot
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
 ```
@@ -193,6 +195,72 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/credentials
 # Get a specific key (must be in allowed list)
 curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/credentials/OPENAI_API_KEY
 ```
+
+### Native Agent Integration
+
+Three modes for direct integration with AI coding agents:
+
+```bash
+# Inject credentials as env vars into any agent
+./start.sh --agent-env codex
+./start.sh --agent-env claude
+./start.sh --agent-env gemini
+./start.sh --agent-env opencode
+
+# Export to current shell (for agents that read env)
+eval $(./start.sh --agent-export)
+
+# MCP server (for Claude Code, Copilot, etc.)
+./start.sh --agent-mcp
+```
+
+### Per-Agent Setup
+
+**Codex (OpenAI):**
+```bash
+./start.sh --agent-env codex
+```
+
+**Claude Code:**
+```json
+// ~/.claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "credentials": {
+      "command": "python",
+      "args": ["/path/to/check_please/agent_api.py", "--mcp"]
+    }
+  }
+}
+```
+
+**Gemini CLI:**
+```bash
+eval $(./start.sh --agent-export)
+gemini
+```
+
+**GitHub Copilot CLI:**
+```bash
+eval $(./start.sh --agent-export)
+ghcs
+```
+
+**Open Interpreter:**
+```bash
+./start.sh --agent-env interpreter
+```
+
+**Any agent via shell:**
+```bash
+# One-liner: inject and run
+./start.sh --agent-env your-agent-command
+
+# Or export to current session
+eval $(./start.sh --agent-export)
+```
+
+All modes respect the same permissions file and log all access.
 
 ## Adding a Provider
 

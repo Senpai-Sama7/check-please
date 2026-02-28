@@ -1,9 +1,13 @@
-"""Credential broker API for AI agents.
+"""Credential broker for AI agents.
 
-Localhost HTTP server that vends credentials to authorized agents.
+Modes:
+  --serve       HTTP API on localhost (default)
+  --env CMD     Launch CMD with allowed credentials as env vars
+  --export      Print shell export statements for eval/source
+  --mcp         MCP (Model Context Protocol) stdio server
+
 Owner controls access via .check_please_agent_permissions.json.
-
-Zero new dependencies — uses stdlib http.server.
+Zero new dependencies — stdlib only (+ python-dotenv for .env parsing).
 """
 
 from __future__ import annotations
@@ -11,6 +15,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shlex
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -207,7 +213,181 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
         server.server_close()
 
 
+def _get_allowed_creds(env_path: Path) -> dict[str, str]:
+    """Load env and filter to only allowed credentials."""
+    base_dir = env_path.parent
+    env_vars = _load_env(env_path)
+    permissions = _load_permissions(base_dir)
+    if permissions.get("deny_all"):
+        print(f"\033[33m⚠ No permissions file found.\033[0m", file=sys.stderr)
+        create_permissions_template(base_dir)
+        print(f"  Created {PERMISSIONS_FILE} — edit it to allow credentials.\n", file=sys.stderr)
+        return {}
+    return {k: v for k, v in env_vars.items() if k in permissions["allowed"]}
+
+
+# ── Mode: --env CMD (launch agent with credentials as env vars) ──
+
+def run_with_env(env_path: Path, cmd: list[str]):
+    creds = _get_allowed_creds(env_path)
+    if not creds:
+        print("\033[31m✗ No allowed credentials to inject\033[0m", file=sys.stderr)
+        sys.exit(1)
+    # Start with current env, overlay allowed creds
+    env = dict(os.environ)
+    env.update(creds)
+    _log_access(env_path.parent, "env_inject", env_var=",".join(creds.keys()),
+                agent=cmd[0] if cmd else "unknown", granted=True)
+    n = len(creds)
+    print(f"\033[36m▸ Injecting {n} credential{'s' if n != 1 else ''} into: {' '.join(cmd)}\033[0m",
+          file=sys.stderr)
+    sys.exit(subprocess.call(cmd, env=env))
+
+
+# ── Mode: --export (print shell export statements) ──
+
+def print_exports(env_path: Path):
+    creds = _get_allowed_creds(env_path)
+    if not creds:
+        print("# No allowed credentials. Edit .check_please_agent_permissions.json", file=sys.stderr)
+        sys.exit(1)
+    _log_access(env_path.parent, "shell_export", env_var=",".join(creds.keys()), granted=True)
+    for k, v in creds.items():
+        print(f"export {k}={shlex.quote(v)}")
+
+
+# ── Mode: --mcp (Model Context Protocol stdio server) ──
+
+def run_mcp(env_path: Path):
+    """MCP JSON-RPC stdio server. Compatible with Claude Code, Copilot, etc."""
+    creds = _get_allowed_creds(env_path)
+    base_dir = env_path.parent
+
+    def _respond(id, result):
+        msg = {"jsonrpc": "2.0", "id": id, "result": result}
+        body = json.dumps(msg)
+        sys.stdout.write(f"Content-Length: {len(body)}\r\n\r\n{body}")
+        sys.stdout.flush()
+
+    def _error(id, code, message):
+        msg = {"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}
+        body = json.dumps(msg)
+        sys.stdout.write(f"Content-Length: {len(body)}\r\n\r\n{body}")
+        sys.stdout.flush()
+
+    def _read_message() -> Optional[dict]:
+        # Read Content-Length header
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                return None
+            line = line.strip()
+            if line.startswith("Content-Length:"):
+                length = int(line.split(":", 1)[1].strip())
+                sys.stdin.readline()  # empty line
+                body = sys.stdin.read(length)
+                return json.loads(body)
+            if line == "":
+                continue
+
+    tools = [
+        {
+            "name": "get_credential",
+            "description": "Get an API key or credential value by env var name. Only returns credentials the owner has explicitly allowed.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Environment variable name (e.g. OPENAI_API_KEY)"}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "list_credentials",
+            "description": "List available credential names that the owner has allowed access to. Returns names only, not values.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }
+    ]
+
+    print("check_please MCP credential server ready", file=sys.stderr)
+
+    while True:
+        msg = _read_message()
+        if msg is None:
+            break
+
+        method = msg.get("method", "")
+        id = msg.get("id")
+        params = msg.get("params", {})
+
+        if method == "initialize":
+            _respond(id, {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "check_please", "version": "1.0.0"}
+            })
+        elif method == "notifications/initialized":
+            pass  # no response needed
+        elif method == "tools/list":
+            _respond(id, {"tools": tools})
+        elif method == "tools/call":
+            tool_name = params.get("name", "")
+            args = params.get("arguments", {})
+            if tool_name == "list_credentials":
+                names = list(creds.keys())
+                _log_access(base_dir, "mcp_list", granted=True)
+                _respond(id, {"content": [{"type": "text", "text": json.dumps(names)}]})
+            elif tool_name == "get_credential":
+                var = args.get("name", "")
+                if var in creds:
+                    _log_access(base_dir, "mcp_get", env_var=var, granted=True)
+                    _respond(id, {"content": [{"type": "text", "text": creds[var]}]})
+                else:
+                    _log_access(base_dir, "mcp_denied", env_var=var, granted=False)
+                    _respond(id, {"content": [{"type": "text", "text": f"Access denied: {var}"}], "isError": True})
+            else:
+                _error(id, -32601, f"Unknown tool: {tool_name}")
+        elif method == "ping":
+            _respond(id, {})
+        else:
+            if id is not None:
+                _error(id, -32601, f"Method not found: {method}")
+
+
 if __name__ == "__main__":
-    env = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".env")
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
-    serve(env, port)
+    args = sys.argv[1:]
+    env_path = Path(".env")
+
+    # Parse --env-file before mode flags
+    if "--env-file" in args:
+        idx = args.index("--env-file")
+        env_path = Path(args[idx + 1])
+        args = args[:idx] + args[idx + 2:]
+
+    if not args or args[0] == "--serve":
+        port = DEFAULT_PORT
+        if len(args) > 1 and args[-1].isdigit():
+            port = int(args[-1])
+        serve(env_path, port)
+    elif args[0] == "--export":
+        print_exports(env_path)
+    elif args[0] == "--mcp":
+        run_mcp(env_path)
+    elif args[0] == "--env":
+        if len(args) < 2:
+            print("Usage: agent_api.py --env COMMAND [ARGS...]", file=sys.stderr)
+            sys.exit(2)
+        run_with_env(env_path, args[1:])
+    else:
+        print(f"""Usage: agent_api.py [MODE] [OPTIONS]
+
+Modes:
+  --serve          HTTP credential broker (default)
+  --env CMD...     Launch CMD with allowed credentials as env vars
+  --export         Print shell export statements (use with eval)
+  --mcp            MCP stdio server for Claude Code, Copilot, etc.
+
+Options:
+  --env-file PATH  Path to .env file (default: .env)
+""", file=sys.stderr)
+        sys.exit(2)

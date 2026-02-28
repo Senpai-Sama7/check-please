@@ -31,6 +31,9 @@ for arg in "$@"; do
         --web|-w) MODE="web" ;;
         --guide) MODE="guide" ;;
         --agent-api|-a) MODE="agent-api" ;;
+        --agent-env) MODE="agent-env" ;;
+        --agent-export) MODE="agent-export" ;;
+        --agent-mcp) MODE="agent-mcp" ;;
         --dry-run) DRY_RUN=true ;;
         --help|-h) SHOW_HELP=true ;;
         *) EXTRA_ARGS+=("$arg") ;;
@@ -56,6 +59,9 @@ if $SHOW_HELP; then
     printf "  ./start.sh --tui        Terminal UI — rich visual interface\n"
     printf "  ./start.sh --guide      Quick start — first-time tutorial\n"
     printf "  ./start.sh --agent-api   Credential broker for AI agents\n"
+    printf "  ./start.sh --agent-env   Launch agent with credentials as env vars\n"
+    printf "  ./start.sh --agent-export Print export statements for eval/source\n"
+    printf "  ./start.sh --agent-mcp   MCP server for Claude Code, Copilot, etc.\n"
     printf "  ./start.sh --dry-run    Preview what would be audited\n"
     printf "  ./start.sh --help       Show this help\n"
     printf "\n${BOLD}For beginners:${NC}\n"
@@ -168,7 +174,25 @@ case "$MODE" in
         ;;
     agent-api)
         echo ""
-        python "$DIR/agent_api.py" "$ENV_FILE"
+        python "$DIR/agent_api.py" --serve
+        exit 0
+        ;;
+    agent-env)
+        echo ""
+        if [ ${#EXTRA_ARGS[@]} -eq 0 ]; then
+            printf "${RED}✗ Usage: ./start.sh --agent-env COMMAND [ARGS...]${NC}\n"
+            printf "  Example: ./start.sh --agent-env codex\n"
+            exit 2
+        fi
+        python "$DIR/agent_api.py" --env "${EXTRA_ARGS[@]}"
+        exit $?
+        ;;
+    agent-export)
+        python "$DIR/agent_api.py" --export
+        exit 0
+        ;;
+    agent-mcp)
+        python "$DIR/agent_api.py" --mcp
         exit 0
         ;;
 esac
