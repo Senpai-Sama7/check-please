@@ -302,19 +302,20 @@ tr:hover td{background:var(--accent-glow2)}
     <h1><span>Check Please</span></h1>
     <!-- Setup mode -->
     <div id="lock-setup">
-      <p>Welcome! Create a passkey to protect your vault. This passkey encrypts all stored passwords locally.</p>
+      <p>Welcome! Create a password to protect your vault. All passwords are encrypted locally on this device.</p>
       <div class="input-group"><label>Display Name</label><input type="text" id="setup-name" placeholder="Your name"></div>
-      <div class="input-group" style="margin-top:12px"><label>Create Passkey</label><input type="password" id="setup-pass" placeholder="Choose a strong passkey"></div>
-      <div class="input-group" style="margin-top:12px"><label>Confirm Passkey</label><input type="password" id="setup-pass2" placeholder="Confirm passkey"></div>
+      <div class="input-group" style="margin-top:12px"><label>Create Password</label><input type="password" id="setup-pass" placeholder="Choose a strong password"></div>
+      <div class="input-group" style="margin-top:12px"><label>Confirm Password</label><input type="password" id="setup-pass2" placeholder="Confirm password"></div>
       <div class="lock-err" id="setup-err"></div>
       <button class="btn primary" onclick="createAccount()" style="width:100%">Create Account</button>
     </div>
     <!-- Login mode -->
     <div id="lock-login" style="display:none">
-      <p id="lock-greeting">Enter your passkey to unlock.</p>
-      <div class="input-group"><label>Passkey</label><input type="password" id="login-pass" placeholder="Enter passkey" onkeydown="if(event.key==='Enter')unlock()"></div>
+      <p id="lock-greeting">Enter your password to unlock.</p>
+      <div class="input-group"><label>Password</label><input type="password" id="login-pass" placeholder="Enter password" onkeydown="if(event.key==='Enter')unlock()"></div>
       <div class="lock-err" id="login-err"></div>
-      <button class="btn primary" onclick="unlock()" style="width:100%">Unlock</button>
+      <button class="btn primary" onclick="unlock()" style="width:100%;margin-bottom:8px">Unlock</button>
+      <button class="btn" onclick="biometricAuth()" id="bio-login-btn" style="width:100%;display:none">🔒 Unlock with Biometrics</button>
     </div>
   </div>
 </div>
@@ -465,11 +466,22 @@ tr:hover td{background:var(--accent-glow2)}
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="input-group"><label>Display Name</label><input type="text" id="set-name" readonly></div>
         <div class="input-group"><label>Account Created</label><input type="text" id="set-created" readonly></div>
-        <div class="input-group"><label>Change Passkey</label>
-          <input type="password" id="set-old-pass" placeholder="Current passkey">
-          <input type="password" id="set-new-pass" placeholder="New passkey" style="margin-top:6px">
+        <div class="input-group"><label>Change Password</label>
+          <input type="password" id="set-old-pass" placeholder="Current password">
+          <input type="password" id="set-new-pass" placeholder="New password" style="margin-top:6px">
         </div>
-        <button class="btn primary" onclick="changePasskey()">🔑 Update Passkey</button>
+        <button class="btn primary" onclick="changePasskey()">🔑 Update Password</button>
+        <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div><div style="font-weight:600;font-size:.875rem">Biometric Unlock</div><div style="color:var(--text2);font-size:.75rem;margin-top:2px" id="bio-status">Not set up</div></div>
+            <span class="badge blue" id="bio-badge" style="display:none">Active</span>
+          </div>
+          <p style="color:var(--text2);font-size:.8rem;line-height:1.5;margin-bottom:10px">Use Face ID, Touch ID, fingerprint, or Windows Hello to unlock instead of typing your password.</p>
+          <div class="btn-group">
+            <button class="btn success" onclick="registerBiometric()" id="bio-setup-btn">🔒 Set Up Biometrics</button>
+            <button class="btn danger sm" onclick="removeBiometric()" id="bio-remove-btn" style="display:none">Remove</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -788,11 +800,13 @@ function closeModals(){document.querySelectorAll('.modal-overlay').forEach(m=>m.
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
 
 // ── Account / Lock ──
+// ── Account / Lock ──
 async function checkAccount(){
   const d=await api('/api/account/status');
   if(d.exists){
     E('lock-setup').style.display='none';E('lock-login').style.display='block';
-    if(d.name)E('lock-greeting').textContent='Welcome back, '+d.name+'. Enter your passkey.';
+    if(d.name)E('lock-greeting').textContent='Welcome back, '+d.name+'. Enter your password to unlock.';
+    if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';
   }else{
     E('lock-setup').style.display='block';E('lock-login').style.display='none';
   }
@@ -800,8 +814,8 @@ async function checkAccount(){
 
 async function createAccount(){
   const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;
-  if(!p1||p1.length<4){E('setup-err').textContent='Passkey must be at least 4 characters.';return;}
-  if(p1!==p2){E('setup-err').textContent='Passkeys do not match.';return;}
+  if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}
+  if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}
   const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});
   if(d.error){E('setup-err').textContent=d.error;return;}
   E('lock-screen').classList.add('hidden');
@@ -810,9 +824,9 @@ async function createAccount(){
 
 async function unlock(){
   const pw=E('login-pass').value;
-  if(!pw){E('login-err').textContent='Enter your passkey.';return;}
+  if(!pw){E('login-err').textContent='Enter your password.';return;}
   const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});
-  if(!d.ok){E('login-err').textContent='Incorrect passkey.';return;}
+  if(!d.ok){E('login-err').textContent='Incorrect password.';return;}
   E('lock-screen').classList.add('hidden');
   loadVault();loadAccountSettings();
 }
@@ -820,16 +834,97 @@ async function unlock(){
 async function changePasskey(){
   const old=E('set-old-pass').value,nw=E('set-new-pass').value;
   if(!old||!nw){toast('Fill in both fields','error');return;}
-  if(nw.length<4){toast('New passkey must be at least 4 characters','error');return;}
+  if(nw.length<4){toast('New password must be at least 4 characters','error');return;}
   const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});
   if(d.error){toast(d.error,'error');return;}
-  toast('Passkey updated','success');E('set-old-pass').value='';E('set-new-pass').value='';
+  toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';
 }
 
 async function loadAccountSettings(){
   const d=await api('/api/account/status');
   if(d.name)E('set-name').value=d.name;
   if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
+  // Update biometric UI
+  if(d.has_biometric){
+    E('bio-status').textContent='Biometric unlock is active';
+    E('bio-badge').style.display='inline-flex';
+    E('bio-setup-btn').textContent='🔒 Re-register Biometrics';
+    E('bio-remove-btn').style.display='inline-flex';
+  }else{
+    E('bio-status').textContent='Not set up';
+    E('bio-badge').style.display='none';
+    E('bio-setup-btn').textContent='🔒 Set Up Biometrics';
+    E('bio-remove-btn').style.display='none';
+  }
+}
+
+// ── WebAuthn Biometric ──
+function bufToB64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
+function b64ToBuf(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;}
+
+async function registerBiometric(){
+  if(!window.PublicKeyCredential){toast('Biometrics not supported in this browser','error');return;}
+  try{
+    // Get challenge from server
+    const ch=await api('/api/webauthn/register-challenge');
+    if(ch.error){toast(ch.error,'error');return;}
+    // Create credential
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge:b64ToBuf(ch.challenge),
+      rp:{name:'Check Please',id:location.hostname},
+      user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},
+      pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},
+      timeout:60000,
+    }});
+    // Send to server
+    const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      credential_id:bufToB64(cred.rawId),
+      public_key:bufToB64(cred.response.getPublicKey?cred.response.getPublicKey():new ArrayBuffer(0)),
+      attestation:bufToB64(cred.response.attestationObject),
+      client_data:bufToB64(cred.response.clientDataJSON),
+    })});
+    if(d.error){toast(d.error,'error');return;}
+    toast('Biometric unlock registered!','success');
+    loadAccountSettings();
+  }catch(e){
+    if(e.name==='NotAllowedError')toast('Biometric registration cancelled','info');
+    else toast('Biometric setup failed: '+e.message,'error');
+  }
+}
+
+async function biometricAuth(){
+  if(!window.PublicKeyCredential){toast('Biometrics not supported','error');return;}
+  try{
+    const ch=await api('/api/webauthn/auth-challenge');
+    if(ch.error){toast(ch.error,'error');return;}
+    const cred=await navigator.credentials.get({publicKey:{
+      challenge:b64ToBuf(ch.challenge),
+      allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal']})),
+      userVerification:'required',
+      timeout:60000,
+    }});
+    const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      credential_id:bufToB64(cred.rawId),
+      authenticator_data:bufToB64(cred.response.authenticatorData),
+      client_data:bufToB64(cred.response.clientDataJSON),
+      signature:bufToB64(cred.response.signature),
+    })});
+    if(!d.ok){toast('Biometric verification failed','error');return;}
+    E('lock-screen').classList.add('hidden');
+    loadVault();loadAccountSettings();
+  }catch(e){
+    if(e.name==='NotAllowedError')toast('Biometric auth cancelled','info');
+    else toast('Biometric auth failed: '+e.message,'error');
+  }
+}
+
+async function removeBiometric(){
+  if(!confirm('Remove biometric unlock? You will need your password to log in.'))return;
+  const d=await api('/api/webauthn/remove',{method:'POST'});
+  if(d.error){toast(d.error,'error');return;}
+  toast('Biometric unlock removed','success');
+  loadAccountSettings();
 }
 
 // ── Onboarding Tour ──
@@ -944,9 +1039,30 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/account/status":
             acct = _load_account()
             if acct:
-                self._json({"exists": True, "name": acct.get("name", ""), "created": acct.get("created", "")})
+                self._json({"exists": True, "name": acct.get("name", ""), "created": acct.get("created", ""), "has_biometric": bool(acct.get("webauthn_credentials"))})
             else:
                 self._json({"exists": False})
+        elif path == "/api/webauthn/register-challenge":
+            acct = _load_account()
+            if not acct:
+                self._json({"error": "No account"}, 400)
+                return
+            challenge = secrets.token_urlsafe(32)
+            acct["_webauthn_challenge"] = challenge
+            _save_account(acct)
+            import base64
+            user_id = base64.urlsafe_b64encode(hashlib.sha256(acct.get("name", "user").encode()).digest()[:16]).decode().rstrip("=")
+            self._json({"challenge": challenge, "user_id": user_id, "user_name": acct.get("name", "user")})
+        elif path == "/api/webauthn/auth-challenge":
+            acct = _load_account()
+            if not acct or not acct.get("webauthn_credentials"):
+                self._json({"error": "No biometric registered"}, 400)
+                return
+            challenge = secrets.token_urlsafe(32)
+            acct["_webauthn_challenge"] = challenge
+            _save_account(acct)
+            cred_ids = [c["id"] for c in acct["webauthn_credentials"]]
+            self._json({"challenge": challenge, "credentials": cred_ids})
         elif path == "/api/vault":
             self._json({"entries": _load_vault()})
         elif path == "/api/vault/export":
@@ -1011,6 +1127,48 @@ class Handler(BaseHTTPRequestHandler):
             acct = _load_account() or {}
             acct["check"] = _encrypt("check_please_ok", new_passkey)
             _save_account(acct)
+            self._json({"ok": True})
+        elif path == "/api/webauthn/register":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            acct = _load_account()
+            if not acct:
+                self._json({"error": "No account"}, 400)
+                return
+            if not acct.get("_webauthn_challenge"):
+                self._json({"error": "No pending challenge"}, 400)
+                return
+            acct.pop("_webauthn_challenge", None)
+            cred_entry = {"id": data.get("credential_id", ""), "registered": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            acct.setdefault("webauthn_credentials", [])
+            acct["webauthn_credentials"] = [c for c in acct["webauthn_credentials"] if c["id"] != cred_entry["id"]]
+            acct["webauthn_credentials"].append(cred_entry)
+            _save_account(acct)
+            self._json({"ok": True})
+        elif path == "/api/webauthn/auth":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            acct = _load_account()
+            if not acct or not acct.get("_webauthn_challenge"):
+                self._json({"ok": False})
+                return
+            acct.pop("_webauthn_challenge", None)
+            _save_account(acct)
+            cred_id = data.get("credential_id", "")
+            known_ids = [c["id"] for c in acct.get("webauthn_credentials", [])]
+            self._json({"ok": cred_id in known_ids})
+        elif path == "/api/webauthn/remove":
+            acct = _load_account()
+            if acct:
+                acct["webauthn_credentials"] = []
+                acct.pop("_webauthn_challenge", None)
+                _save_account(acct)
             self._json({"ok": True})
         elif path == "/api/vault":
             try:
