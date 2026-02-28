@@ -144,3 +144,112 @@ class TestMCP:
         assert r[3]["result"]["content"][0]["text"] == "value_a"
         # get denied
         assert "denied" in r[4]["result"]["content"][0]["text"].lower()
+
+
+# ── Scoped permissions ──
+
+@pytest.fixture()
+def scoped_dir(tmp_path):
+    """Temp dir with scoped permissions: KEY_A has max_uses=2, KEY_C unlimited."""
+    (tmp_path / ".env").write_text("KEY_A=aaa\nKEY_B=bbb\nKEY_C=ccc\n")
+    perms = {
+        "allowed": [
+            {"name": "KEY_A", "max_uses": 2},
+            "KEY_C",
+        ]
+    }
+    (tmp_path / ".check_please_agent_permissions.json").write_text(json.dumps(perms))
+    return tmp_path
+
+
+class TestParseDuration:
+    def test_seconds(self):
+        from agent_api import _parse_duration
+        assert _parse_duration("30s") == 30
+
+    def test_minutes(self):
+        from agent_api import _parse_duration
+        assert _parse_duration("5m") == 300
+
+    def test_hours(self):
+        from agent_api import _parse_duration
+        assert _parse_duration("2h") == 7200
+
+    def test_days(self):
+        from agent_api import _parse_duration
+        assert _parse_duration("1d") == 86400
+
+    def test_invalid(self):
+        from agent_api import _parse_duration
+        assert _parse_duration("bad") == 0
+        assert _parse_duration("") == 0
+
+
+class TestCredScope:
+    def test_unlimited(self):
+        from agent_api import _CredScope
+        s = _CredScope()
+        assert s.check() is None
+        for _ in range(100):
+            s.record_use()
+        assert s.check() is None
+
+    def test_max_uses(self):
+        from agent_api import _CredScope
+        s = _CredScope(max_uses=2)
+        assert s.check() is None
+        s.record_use()
+        assert s.check() is None
+        s.record_use()
+        assert "exhausted" in s.check()
+
+    def test_expiry(self):
+        from agent_api import _CredScope
+        import time
+        s = _CredScope(expires="1s")
+        assert s.check() is None
+        time.sleep(1.1)
+        assert "expired" in s.check()
+
+
+class TestScopedExport:
+    def test_unallowed_excluded(self, scoped_dir):
+        """KEY_B not in allowed list should be excluded."""
+        r = _run(["--export"], scoped_dir)
+        assert "KEY_B" not in r.stdout
+        assert "KEY_A" in r.stdout
+        assert "KEY_C" in r.stdout
+
+
+class TestScopedMCP:
+    def _mcp_session(self, env_dir, messages):
+        proc = subprocess.Popen(
+            [PYTHON, str(AGENT_API), "--mcp"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, cwd=str(env_dir),
+        )
+        responses = []
+        for msg in messages:
+            body = json.dumps(msg)
+            proc.stdin.write(f"Content-Length: {len(body)}\r\n\r\n{body}")
+            proc.stdin.flush()
+            header = proc.stdout.readline().strip()
+            length = int(header.split(":")[1].strip())
+            proc.stdout.readline()
+            responses.append(json.loads(proc.stdout.read(length)))
+        proc.terminate()
+        return responses
+
+    def test_max_uses_enforced(self, scoped_dir):
+        """KEY_A with max_uses=2 should deny on 3rd request."""
+        init = {"jsonrpc": "2.0", "method": "initialize", "id": 1,
+                "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                           "clientInfo": {"name": "test"}}}
+        get_a = lambda i: {"jsonrpc": "2.0", "method": "tools/call", "id": i,
+                           "params": {"name": "get_credential", "arguments": {"name": "KEY_A"}}}
+        r = self._mcp_session(scoped_dir, [init, get_a(2), get_a(3), get_a(4)])
+        # First two succeed
+        assert r[1]["result"]["content"][0]["text"] == "aaa"
+        assert r[2]["result"]["content"][0]["text"] == "aaa"
+        # Third is denied
+        assert "exhausted" in r[3]["result"]["content"][0]["text"]

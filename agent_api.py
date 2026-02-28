@@ -33,6 +33,39 @@ PERMISSIONS_FILE = ".check_please_agent_permissions.json"
 LOG_FILE = "agent_access.log"
 
 
+def _parse_duration(s: str) -> float:
+    """Parse '30m', '2h', '1d' to seconds. Returns 0 on failure."""
+    if not s:
+        return 0
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    try:
+        return float(s[:-1]) * units[s[-1]]
+    except (KeyError, ValueError, IndexError):
+        return 0
+
+
+class _CredScope:
+    """Per-credential access scope."""
+    __slots__ = ("max_uses", "expires_at", "uses")
+
+    def __init__(self, max_uses: int = 0, expires: str = ""):
+        self.max_uses = max_uses  # 0 = unlimited
+        ttl = _parse_duration(expires)
+        self.expires_at = time.time() + ttl if ttl > 0 else 0  # 0 = never
+        self.uses = 0
+
+    def check(self) -> str | None:
+        """Return error string if access denied, else None."""
+        if self.expires_at and time.time() > self.expires_at:
+            return "credential access expired"
+        if self.max_uses and self.uses >= self.max_uses:
+            return f"max uses ({self.max_uses}) exhausted"
+        return None
+
+    def record_use(self):
+        self.uses += 1
+
+
 def _load_env(env_path: Path) -> dict[str, str]:
     vals = dotenv_values(env_path)
     return {k: v for k, v in vals.items() if v}
@@ -41,15 +74,31 @@ def _load_env(env_path: Path) -> dict[str, str]:
 def _load_permissions(base_dir: Path) -> dict:
     p = base_dir / PERMISSIONS_FILE
     if not p.exists():
-        return {"allowed": [], "deny_all": True}
+        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0}
     try:
         data = json.loads(p.read_text())
         if "allowed" not in data:
             data["allowed"] = []
         data["deny_all"] = False
+        # Parse scoped entries: strings become unlimited, dicts get scope
+        names, scopes = [], {}
+        for entry in data["allowed"]:
+            if isinstance(entry, str):
+                names.append(entry)
+                scopes[entry] = _CredScope()
+            elif isinstance(entry, dict) and "name" in entry:
+                n = entry["name"]
+                names.append(n)
+                scopes[n] = _CredScope(
+                    max_uses=entry.get("max_uses", 0),
+                    expires=entry.get("expires", ""),
+                )
+        data["allowed"] = names
+        data["scopes"] = scopes
+        data["token_ttl"] = _parse_duration(data.get("token_ttl", ""))
         return data
     except (json.JSONDecodeError, OSError):
-        return {"allowed": [], "deny_all": True}
+        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0}
 
 
 def _log_access(base_dir: Path, event: str, env_var: str = "", agent: str = "", granted: bool = False):
@@ -67,13 +116,18 @@ def _log_access(base_dir: Path, event: str, env_var: str = "", agent: str = "", 
         pass
 
 
-def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_dir: Path):
+def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_dir: Path,
+                  token_expires: float = 0):
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass  # suppress default stderr logging
 
         def _check_auth(self) -> Optional[str]:
+            if token_expires and time.time() > token_expires:
+                self.send_error(401, "Bearer token expired")
+                _log_access(base_dir, "token_expired")
+                return None
             auth = self.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or auth[7:] != token:
                 self.send_error(401, "Invalid or missing bearer token")
@@ -155,6 +209,16 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                 self._json_response(404, {"error": f"{var_name} not found in .env"})
                 return
 
+            # Enforce scoped limits
+            scope = permissions.get("scopes", {}).get(var_name)
+            if scope:
+                err = scope.check()
+                if err:
+                    _log_access(base_dir, "scope_denied", env_var=var_name, agent=agent, granted=False)
+                    self._json_response(403, {"error": err})
+                    return
+                scope.record_use()
+
             _log_access(base_dir, "credential_granted", env_var=var_name, agent=agent, granted=True)
             self._json_response(200, {"env_var": var_name, "value": env_vars[var_name]})
 
@@ -165,7 +229,9 @@ def create_permissions_template(base_dir: Path) -> Path:
     p = base_dir / PERMISSIONS_FILE
     template = {
         "allowed": [],
-        "_comment": "Add env var names that agents can access. Example: [\"OPENAI_API_KEY\", \"ANTHROPIC_API_KEY\"]"
+        "token_ttl": "1h",
+        "_comment": "Strings = unlimited. Objects = scoped: {name, max_uses, expires}. token_ttl limits bearer token lifetime.",
+        "_example": ["OPENAI_API_KEY", {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h"}]
     }
     p.write_text(json.dumps(template, indent=2) + "\n")
     return p
@@ -180,6 +246,8 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
 
     permissions = _load_permissions(base_dir)
     token = secrets.token_urlsafe(32)
+    token_ttl = permissions.get("token_ttl", 0)
+    token_expires = time.time() + token_ttl if token_ttl else 0
 
     if permissions.get("deny_all"):
         print(f"\033[33m⚠ No permissions file found.\033[0m")
@@ -196,6 +264,8 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
     print(f"\033[1m╚══════════════════════════════════════════════╝\033[0m")
     print(f"\n\033[36m  Credentials loaded:\033[0m {len(env_vars)}")
     print(f"\033[36m  Allowed for agents:\033[0m {allowed_count}")
+    if token_ttl:
+        print(f"\033[36m  Token expires in:\033[0m  {int(token_ttl)}s")
     print(f"\033[36m  Listening on:\033[0m      http://127.0.0.1:{port}")
     print(f"\n\033[1m  Bearer Token (give to your agent):\033[0m")
     print(f"\033[32m  {token}\033[0m")
@@ -205,7 +275,7 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
     print(f"  curl -H 'Authorization: Bearer {token}' http://127.0.0.1:{port}/credentials")
     print(f"\n\033[2m  Press Ctrl+C to stop\033[0m\n")
 
-    handler = _make_handler(token, env_vars, permissions, base_dir)
+    handler = _make_handler(token, env_vars, permissions, base_dir, token_expires)
     server = HTTPServer(("127.0.0.1", port), handler)
     try:
         server.serve_forever()
@@ -215,7 +285,7 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
 
 
 def _get_allowed_creds(env_path: Path) -> dict[str, str]:
-    """Load env and filter to only allowed credentials."""
+    """Load env and filter to only allowed credentials (respects scoped expiry)."""
     base_dir = env_path.parent
     env_vars = _load_env(env_path)
     permissions = _load_permissions(base_dir)
@@ -224,7 +294,15 @@ def _get_allowed_creds(env_path: Path) -> dict[str, str]:
         create_permissions_template(base_dir)
         print(f"  Created {PERMISSIONS_FILE} — edit it to allow credentials.\n", file=sys.stderr)
         return {}
-    return {k: v for k, v in env_vars.items() if k in permissions["allowed"]}
+    result = {}
+    for k, v in env_vars.items():
+        if k not in permissions["allowed"]:
+            continue
+        scope = permissions.get("scopes", {}).get(k)
+        if scope and scope.check():
+            continue  # expired or exhausted
+        result[k] = v
+    return result
 
 
 # ── Mode: --env CMD (launch agent with credentials as env vars) ──
@@ -277,6 +355,7 @@ def run_mcp(env_path: Path):
     """MCP JSON-RPC stdio server. Compatible with Claude Code, Copilot, etc."""
     creds = _get_allowed_creds(env_path)
     base_dir = env_path.parent
+    permissions = _load_permissions(base_dir)
 
     def _respond(id, result):
         msg = {"jsonrpc": "2.0", "id": id, "result": result}
@@ -355,6 +434,14 @@ def run_mcp(env_path: Path):
             elif tool_name == "get_credential":
                 var = args.get("name", "")
                 if var in creds:
+                    scope = permissions.get("scopes", {}).get(var)
+                    if scope:
+                        err = scope.check()
+                        if err:
+                            _log_access(base_dir, "mcp_scope_denied", env_var=var, granted=False)
+                            _respond(id, {"content": [{"type": "text", "text": err}], "isError": True})
+                            continue
+                        scope.record_use()
                     _log_access(base_dir, "mcp_get", env_var=var, granted=True)
                     _respond(id, {"content": [{"type": "text", "text": creds[var]}]})
                 else:

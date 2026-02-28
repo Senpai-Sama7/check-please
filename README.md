@@ -169,9 +169,19 @@ Create `.check_please_agent_permissions.json` to control which credentials agent
 
 ```json
 {
-  "allowed": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+  "allowed": [
+    "OPENAI_API_KEY",
+    {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h"},
+    {"name": "GITHUB_TOKEN", "max_uses": 10, "expires": "30m"}
+  ],
+  "token_ttl": "1h"
 }
 ```
+
+- Plain strings = unlimited access
+- Objects with `max_uses` and/or `expires` = scoped access (denied after limit)
+- `token_ttl` = bearer token auto-expires after this duration (e.g. `30m`, `2h`, `1d`)
+- Duration format: `30s`, `5m`, `2h`, `1d`
 
 Agents can only retrieve credentials listed in `allowed`. Everything else is denied.
 
