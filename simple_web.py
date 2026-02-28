@@ -439,7 +439,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <a onclick="go('providers')" data-page="providers"><span class="icon">🌐</span> Providers</a>
     <a onclick="go('settings')" data-page="settings"><span class="icon">⚙️</span> Settings</a>
   </nav>
-  <div class="bottom"><div class="ver">v1.0.0 · Local Only · Encrypted</div></div>
+  <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.0.0 · Local Only · Encrypted</div></div>
 </div>
 
 <!-- Main -->
@@ -815,7 +815,7 @@ async function downloadBuildEnv(){
   const checked=[...document.querySelectorAll('.build-cb:checked')].map(c=>c.dataset.var);
   if(!checked.length){toast('Select at least one credential','info');return;}
   const groups={};for(const k of auditData){if(!checked.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k.env_var);}
-  const d=await api('/api/env/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vars:checked,groups,template:true})});
+  const d=await api('/api/env/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vars:checked,groups,template:false})});
   if(d.error){toast(d.error,'error');return;}
   toast('Exported to '+d.path,'success');closeModals();
 }
@@ -951,6 +951,7 @@ function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style
 function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';
   api('/api/account/status').then(d=>populateLogin(d.users||[]));}
 function onUserPick(){E('login-err').textContent='';}
+function logout(){E('lock-screen').classList.remove('hidden');E('login-pass').value='';E('login-err').textContent='';checkAccount();}
 async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
 async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
