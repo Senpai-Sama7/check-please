@@ -48,6 +48,7 @@ class AuditLog:
         """Append buffered entries to log file."""
         if not self._entries:
             return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a") as f:
             for entry in self._entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")

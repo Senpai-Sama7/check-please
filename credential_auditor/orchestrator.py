@@ -42,6 +42,11 @@ _cache = ValidationCache(ttl_seconds=3600)
 _FAIL_BAIL_THRESHOLD = 3
 
 
+class AuditResults(list):
+    """list subclass that carries an AuditSummary attribute."""
+    summary: AuditSummary = None  # type: ignore[assignment]
+
+
 async def audit(
     env_path: Path,
     providers: Optional[list[str]] = None,
@@ -63,7 +68,9 @@ async def audit(
         for p in providers:
             if p not in registry:
                 console.print(f"[red]Unknown provider: {p}. Available: {list(registry)}[/red]")
-                return []
+                r = AuditResults()
+                r.summary = AuditSummary(0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                return r
         active = {name: registry[name]() for name in providers}
     else:
         active = {name: cls() for name, cls in registry.items()}
@@ -102,7 +109,9 @@ async def audit(
         console.print("[yellow]No matching credentials found for enabled providers.[/yellow]")
         alog.log("audit_end", detail="no credentials found")
         alog.flush()
-        return []
+        r = AuditResults()
+        r.summary = AuditSummary(0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+        return r
 
     # Check cache first, separate cached vs uncached
     cached_results: list[KeyResult] = []
@@ -178,11 +187,9 @@ async def audit(
              f"{len(skipped_providers)} providers bailed")
     alog.flush()
 
-    # Attach summary to results list as attribute for callers that want it
-    results.__class__ = type("AuditResults", (list,), {})  # type: ignore[assignment]
-    results.summary = summary  # type: ignore[attr-defined]
-
-    return results
+    out = AuditResults(results)
+    out.summary = summary
+    return out
 
 
 def get_cache() -> ValidationCache:
