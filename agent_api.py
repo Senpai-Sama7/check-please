@@ -31,6 +31,7 @@ from dotenv import dotenv_values
 DEFAULT_PORT = 8458
 PERMISSIONS_FILE = ".check_please_agent_permissions.json"
 LOG_FILE = "agent_access.log"
+USAGE_LOG = "agent_usage.log"
 
 
 def _parse_duration(s: str) -> float:
@@ -44,15 +45,113 @@ def _parse_duration(s: str) -> float:
         return 0
 
 
+from collections import deque
+import threading
+import urllib.request
+
+
+class _UsageTracker:
+    """In-memory usage counters with RPM sliding window and token totals."""
+
+    def __init__(self, base_dir: Path):
+        self._base_dir = base_dir
+        self._lock = threading.Lock()
+        # {key: deque of timestamps} for RPM
+        self._rpm_windows: dict[str, deque] = {}
+        # {key: total_requests}
+        self._requests: dict[str, int] = {}
+        # {key: total_tokens}
+        self._tokens: dict[str, int] = {}
+        # {(key, agent): total_tokens}
+        self._tokens_by_agent: dict[tuple[str, str], int] = {}
+
+    def record_request(self, key: str, agent: str = "") -> None:
+        now = time.time()
+        with self._lock:
+            self._requests[key] = self._requests.get(key, 0) + 1
+            if key not in self._rpm_windows:
+                self._rpm_windows[key] = deque()
+            self._rpm_windows[key].append(now)
+
+    def check_rpm(self, key: str, limit: int) -> str | None:
+        """Return error string if over RPM limit, else None."""
+        if limit <= 0:
+            return None
+        now = time.time()
+        with self._lock:
+            dq = self._rpm_windows.get(key)
+            if not dq:
+                return None
+            # Evict entries older than 60s
+            while dq and dq[0] < now - 60:
+                dq.popleft()
+            if len(dq) >= limit:
+                return f"rate limit exceeded: {len(dq)}/{limit} RPM for {key}"
+        return None
+
+    def record_tokens(self, key: str, tokens: int, agent: str = "",
+                      model: str = "") -> None:
+        with self._lock:
+            self._tokens[key] = self._tokens.get(key, 0) + tokens
+            if agent:
+                k = (key, agent)
+                self._tokens_by_agent[k] = self._tokens_by_agent.get(k, 0) + tokens
+        # Append to usage log
+        entry = {"ts": datetime.now(timezone.utc).isoformat(), "key": key,
+                 "tokens": tokens, "agent": agent, "model": model}
+        try:
+            with open(self._base_dir / USAGE_LOG, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+
+    def get_rpm(self, key: str) -> int:
+        now = time.time()
+        with self._lock:
+            dq = self._rpm_windows.get(key)
+            if not dq:
+                return 0
+            while dq and dq[0] < now - 60:
+                dq.popleft()
+            return len(dq)
+
+    def summary(self, key: str = "") -> dict:
+        with self._lock:
+            if key:
+                return {"key": key, "requests": self._requests.get(key, 0),
+                        "tokens": self._tokens.get(key, 0),
+                        "rpm": self.get_rpm(key)}
+            return {k: {"requests": self._requests.get(k, 0),
+                        "tokens": self._tokens.get(k, 0),
+                        "rpm": self.get_rpm(k)}
+                    for k in set(list(self._requests) + list(self._tokens))}
+
+
+def _send_alert(msg: str, webhook: str = "", key: str = "",
+                agent: str = "") -> None:
+    """Print alert to stderr; optionally POST to webhook."""
+    print(f"\033[33m⚠ ALERT: {msg}\033[0m", file=sys.stderr)
+    if webhook:
+        payload = json.dumps({"text": f"🔔 check_please: {msg}",
+                              "key": key, "agent": agent}).encode()
+        try:
+            req = urllib.request.Request(webhook, data=payload,
+                                        headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
+
 class _CredScope:
     """Per-credential access scope."""
-    __slots__ = ("max_uses", "expires_at", "uses")
+    __slots__ = ("max_uses", "expires_at", "uses", "rpm_limit")
 
-    def __init__(self, max_uses: int = 0, expires: str = ""):
+    def __init__(self, max_uses: int = 0, expires: str = "", rpm_limit: int = 0):
         self.max_uses = max_uses  # 0 = unlimited
         ttl = _parse_duration(expires)
         self.expires_at = time.time() + ttl if ttl > 0 else 0  # 0 = never
         self.uses = 0
+        self.rpm_limit = rpm_limit  # 0 = unlimited
 
     def check(self) -> str | None:
         """Return error string if access denied, else None."""
@@ -74,7 +173,8 @@ def _load_env(env_path: Path) -> dict[str, str]:
 def _load_permissions(base_dir: Path) -> dict:
     p = base_dir / PERMISSIONS_FILE
     if not p.exists():
-        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0}
+        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0,
+                "alerts": {}}
     try:
         data = json.loads(p.read_text())
         if "allowed" not in data:
@@ -92,13 +192,16 @@ def _load_permissions(base_dir: Path) -> dict:
                 scopes[n] = _CredScope(
                     max_uses=entry.get("max_uses", 0),
                     expires=entry.get("expires", ""),
+                    rpm_limit=entry.get("rpm_limit", 0),
                 )
         data["allowed"] = names
         data["scopes"] = scopes
         data["token_ttl"] = _parse_duration(data.get("token_ttl", ""))
+        data["alerts"] = data.get("alerts", {})
         return data
     except (json.JSONDecodeError, OSError):
-        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0}
+        return {"allowed": [], "deny_all": True, "scopes": {}, "token_ttl": 0,
+                "alerts": {}}
 
 
 def _log_access(base_dir: Path, event: str, env_var: str = "", agent: str = "", granted: bool = False):
@@ -117,7 +220,7 @@ def _log_access(base_dir: Path, event: str, env_var: str = "", agent: str = "", 
 
 
 def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_dir: Path,
-                  token_expires: float = 0):
+                  token_expires: float = 0, tracker: _UsageTracker | None = None):
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -145,6 +248,10 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
 
         def _get_agent_id(self) -> str:
             return self.headers.get("X-Agent-Id", "unknown")
+
+        def _read_body(self) -> bytes:
+            length = int(self.headers.get("Content-Length", 0))
+            return self.rfile.read(length) if length else b""
 
         def do_GET(self):
             if not self._check_auth():
@@ -178,11 +285,56 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
             elif self.path == "/health":
                 self._json_response(200, {"status": "ok", "credentials_loaded": len(env_vars)})
 
+            elif self.path == "/usage":
+                if tracker:
+                    self._json_response(200, {"usage": tracker.summary()})
+                else:
+                    self._json_response(200, {"usage": {}})
+
+            elif self.path.startswith("/usage/"):
+                key = self.path[len("/usage/"):]
+                if tracker:
+                    s = tracker.summary(key)
+                    s["rpm_limit"] = 0
+                    scope = permissions.get("scopes", {}).get(key)
+                    if scope:
+                        s["rpm_limit"] = scope.rpm_limit
+                    self._json_response(200, s)
+                else:
+                    self._json_response(200, {"key": key, "requests": 0, "tokens": 0, "rpm": 0})
+
             else:
                 self.send_error(404)
 
         def do_POST(self):
             if not self._check_auth():
+                return
+
+            agent = self._get_agent_id()
+
+            # POST /usage — agent reports token usage
+            if self.path == "/usage":
+                if not tracker:
+                    self._json_response(200, {"status": "ok"})
+                    return
+                try:
+                    data = json.loads(self._read_body())
+                except (json.JSONDecodeError, ValueError):
+                    self._json_response(400, {"error": "invalid JSON"})
+                    return
+                key = data.get("key", "")
+                tokens = int(data.get("tokens", 0))
+                model = data.get("model", "")
+                if key and tokens > 0:
+                    tracker.record_tokens(key, tokens, agent=agent, model=model)
+                    # Check alert thresholds
+                    alerts = permissions.get("alerts", {})
+                    token_threshold = alerts.get("token_threshold", 0)
+                    if token_threshold and tracker.summary(key).get("tokens", 0) >= token_threshold:
+                        _send_alert(f"{key} exceeded {token_threshold} tokens",
+                                    webhook=alerts.get("webhook", ""),
+                                    key=key, agent=agent)
+                self._json_response(200, {"status": "ok"})
                 return
 
             # POST /credentials/{env_var} — get actual value
@@ -191,7 +343,6 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                 return
 
             var_name = self.path[len("/credentials/"):]
-            agent = self._get_agent_id()
 
             if permissions.get("deny_all"):
                 _log_access(base_dir, "credential_request", env_var=var_name, agent=agent, granted=False)
@@ -217,7 +368,20 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                     _log_access(base_dir, "scope_denied", env_var=var_name, agent=agent, granted=False)
                     self._json_response(403, {"error": err})
                     return
+                # RPM check
+                if tracker and scope.rpm_limit:
+                    rpm_err = tracker.check_rpm(var_name, scope.rpm_limit)
+                    if rpm_err:
+                        _log_access(base_dir, "rpm_denied", env_var=var_name, agent=agent, granted=False)
+                        _send_alert(rpm_err, webhook=permissions.get("alerts", {}).get("webhook", ""),
+                                    key=var_name, agent=agent)
+                        self._json_response(429, {"error": rpm_err})
+                        return
                 scope.record_use()
+
+            # Track request
+            if tracker:
+                tracker.record_request(var_name, agent=agent)
 
             _log_access(base_dir, "credential_granted", env_var=var_name, agent=agent, granted=True)
             self._json_response(200, {"env_var": var_name, "value": env_vars[var_name]})
@@ -230,8 +394,9 @@ def create_permissions_template(base_dir: Path) -> Path:
     template = {
         "allowed": [],
         "token_ttl": "1h",
-        "_comment": "Strings = unlimited. Objects = scoped: {name, max_uses, expires}. token_ttl limits bearer token lifetime.",
-        "_example": ["OPENAI_API_KEY", {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h"}]
+        "alerts": {"token_threshold": 100000, "webhook": ""},
+        "_comment": "Strings = unlimited. Objects = scoped: {name, max_uses, expires, rpm_limit}. token_ttl limits bearer token lifetime.",
+        "_example": ["OPENAI_API_KEY", {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h", "rpm_limit": 60}]
     }
     p.write_text(json.dumps(template, indent=2) + "\n")
     return p
@@ -248,6 +413,7 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
     token = secrets.token_urlsafe(32)
     token_ttl = permissions.get("token_ttl", 0)
     token_expires = time.time() + token_ttl if token_ttl else 0
+    tracker = _UsageTracker(base_dir)
 
     if permissions.get("deny_all"):
         print(f"\033[33m⚠ No permissions file found.\033[0m")
@@ -266,16 +432,19 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
     print(f"\033[36m  Allowed for agents:\033[0m {allowed_count}")
     if token_ttl:
         print(f"\033[36m  Token expires in:\033[0m  {int(token_ttl)}s")
+    print(f"\033[36m  Usage tracking:\033[0m    enabled")
     print(f"\033[36m  Listening on:\033[0m      http://127.0.0.1:{port}")
     print(f"\n\033[1m  Bearer Token (give to your agent):\033[0m")
     print(f"\033[32m  {token}\033[0m")
     print(f"\n\033[2m  Access log: {base_dir / LOG_FILE}\033[0m")
+    print(f"\033[2m  Usage log:  {base_dir / USAGE_LOG}\033[0m")
     print(f"\033[2m  Permissions: {base_dir / PERMISSIONS_FILE}\033[0m")
     print(f"\n\033[36m  Example:\033[0m")
     print(f"  curl -H 'Authorization: Bearer {token}' http://127.0.0.1:{port}/credentials")
+    print(f"  curl -H 'Authorization: Bearer {token}' http://127.0.0.1:{port}/usage")
     print(f"\n\033[2m  Press Ctrl+C to stop\033[0m\n")
 
-    handler = _make_handler(token, env_vars, permissions, base_dir, token_expires)
+    handler = _make_handler(token, env_vars, permissions, base_dir, token_expires, tracker)
     server = HTTPServer(("127.0.0.1", port), handler)
     try:
         server.serve_forever()
@@ -356,6 +525,7 @@ def run_mcp(env_path: Path):
     creds = _get_allowed_creds(env_path)
     base_dir = env_path.parent
     permissions = _load_permissions(base_dir)
+    tracker = _UsageTracker(base_dir)
 
     def _respond(id, result):
         msg = {"jsonrpc": "2.0", "id": id, "result": result}
@@ -400,7 +570,20 @@ def run_mcp(env_path: Path):
             "name": "list_credentials",
             "description": "List available credential names that the owner has allowed access to. Returns names only, not values.",
             "inputSchema": {"type": "object", "properties": {}}
-        }
+        },
+        {
+            "name": "report_usage",
+            "description": "Report token usage for a credential. Call this after making API requests to help the owner track costs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Env var name (e.g. OPENAI_API_KEY)"},
+                    "tokens": {"type": "integer", "description": "Total tokens used"},
+                    "model": {"type": "string", "description": "Model name (e.g. gpt-4)"}
+                },
+                "required": ["key", "tokens"]
+            }
+        },
     ]
 
     print("check_please MCP credential server ready", file=sys.stderr)
@@ -441,12 +624,34 @@ def run_mcp(env_path: Path):
                             _log_access(base_dir, "mcp_scope_denied", env_var=var, granted=False)
                             _respond(id, {"content": [{"type": "text", "text": err}], "isError": True})
                             continue
+                        if scope.rpm_limit:
+                            rpm_err = tracker.check_rpm(var, scope.rpm_limit)
+                            if rpm_err:
+                                _log_access(base_dir, "mcp_rpm_denied", env_var=var, granted=False)
+                                _send_alert(rpm_err, webhook=permissions.get("alerts", {}).get("webhook", ""),
+                                            key=var)
+                                _respond(id, {"content": [{"type": "text", "text": rpm_err}], "isError": True})
+                                continue
                         scope.record_use()
+                    tracker.record_request(var)
                     _log_access(base_dir, "mcp_get", env_var=var, granted=True)
                     _respond(id, {"content": [{"type": "text", "text": creds[var]}]})
                 else:
                     _log_access(base_dir, "mcp_denied", env_var=var, granted=False)
                     _respond(id, {"content": [{"type": "text", "text": f"Access denied: {var}"}], "isError": True})
+            elif tool_name == "report_usage":
+                key = args.get("key", "")
+                tokens = int(args.get("tokens", 0))
+                model = args.get("model", "")
+                if key and tokens > 0:
+                    tracker.record_tokens(key, tokens, model=model)
+                    alerts = permissions.get("alerts", {})
+                    token_threshold = alerts.get("token_threshold", 0)
+                    if token_threshold and tracker.summary(key).get("tokens", 0) >= token_threshold:
+                        _send_alert(f"{key} exceeded {token_threshold} tokens",
+                                    webhook=alerts.get("webhook", ""), key=key)
+                _log_access(base_dir, "mcp_usage_report", env_var=key, granted=True)
+                _respond(id, {"content": [{"type": "text", "text": "usage recorded"}]})
             else:
                 _error(id, -32601, f"Unknown tool: {tool_name}")
         elif method == "ping":
