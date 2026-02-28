@@ -17,3 +17,7 @@ __pycache__/
 .kiro/
 screenshots/
 audit.log
+
+dist/
+*.egg-info/
+build/

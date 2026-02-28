@@ -51,7 +51,8 @@ def main() -> int:
     console = Console(quiet=args.quiet) if hasattr(args, 'quiet') and args.quiet else Console()
 
     if args.version:
-        console.print("credential_auditor 1.0.0")
+        from credential_auditor import __version__
+        console.print(f"credential_auditor {__version__}")
         return 0
 
     if args.list_providers:
