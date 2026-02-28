@@ -46,7 +46,7 @@ _FAIL_BAIL_THRESHOLD = 3
 _CONCURRENCY_LIMIT = 10
 
 
-class AuditResults(list):
+class AuditResults(list[KeyResult]):
     """list subclass that carries an AuditSummary attribute."""
     summary: AuditSummary = None  # type: ignore[assignment]
     _config_error: bool = False
@@ -92,8 +92,9 @@ async def audit(
                 os.environ[var] = value
                 _injected_env.append(var)
     for var in ("TWILIO_ACCOUNT_SID",):
-        if var in env_vars and env_vars[var]:
-            os.environ[var] = env_vars[var]
+        val = env_vars.get(var)
+        if val:
+            os.environ[var] = val
             _injected_env.append(var)
 
     # Match env vars to providers — with auto-detection fallback
@@ -151,20 +152,22 @@ async def audit(
 
     async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
         coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
-        raw = await asyncio.gather(*coros, return_exceptions=True)
+        raw: list[KeyResult | BaseException] = await asyncio.gather(*coros, return_exceptions=True)
 
     results: list[KeyResult] = list(cached_results)
-    for i, r in enumerate(raw):
+    for i, raw_result in enumerate(raw):
         var, key, inst = uncached_tasks[i]
-        if isinstance(r, BaseException):
+        result: KeyResult
+        if isinstance(raw_result, BaseException):
             result = KeyResult(
                 provider=inst.name, env_var=var,
                 key_fingerprint=KeyFingerprint.from_key(key),
                 status="network_error",
-                error_detail=f"{type(r).__name__}: {r}",
+                error_detail=f"{type(raw_result).__name__}: {raw_result}",
             )
         else:
-            result = r
+            assert isinstance(raw_result, KeyResult)
+            result = raw_result
 
         # Cache the result
         _cache.put(inst.name, key, result)

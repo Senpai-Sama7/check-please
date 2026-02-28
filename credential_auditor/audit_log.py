@@ -30,7 +30,7 @@ class AuditLog:
         latency_ms: float = 0.0,
         detail: str = "",
     ) -> None:
-        entry = {
+        entry: dict[str, str | float] = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "event": event,
         }

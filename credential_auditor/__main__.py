@@ -169,7 +169,7 @@ def main() -> int:
     # JSON to stdout
     if args.json:
         import json
-        payload = [r.to_dict(rl) for r in results]
+        payload: list[dict] | dict = [r.to_dict(rl) for r in results]
         if summary:
             payload = {"summary": summary.to_dict(), "results": payload}
         print(json.dumps(payload, indent=2, ensure_ascii=False))
