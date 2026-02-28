@@ -29,6 +29,7 @@ check-please --dry-run --env .env    # preview without API calls
 ./start.sh --agent-api  # Credential broker for AI agents
 ./start.sh --agent-env codex  # Launch agent with credentials injected
 ./start.sh --agent-mcp  # MCP server for Claude Code, Copilot
+./start.sh --agent-write-env /tmp/agent.env  # Write credentials to file
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
 ```
@@ -220,6 +221,9 @@ Three modes for direct integration with AI coding agents:
 # Export to current shell (for agents that read env)
 eval $(./start.sh --agent-export)
 
+# Write credentials to a file (for agents that read .env files)
+./start.sh --agent-write-env /tmp/agent.env
+
 # MCP server (for Claude Code, Copilot, etc.)
 ./start.sh --agent-mcp
 ```
@@ -312,3 +316,5 @@ Auto-discovered on next run. No registration needed.
 - Dead keys auto-pruned from organized file
 - httpx debug logging disabled to prevent key leakage
 - Cache keys are SHA-256 hashes of `provider:key` — no raw keys stored in memory
+- Agent broker: one-time bearer token, localhost-only, per-credential scoping
+- Agent broker: all access logged to `agent_access.log` with timestamps

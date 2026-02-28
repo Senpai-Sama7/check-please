@@ -93,7 +93,7 @@ paths:
                   name: { type: string }
                   value: { type: string }
         "403":
-          description: Credential not in allowed list
+          description: Credential denied — not in allowed list, max_uses exhausted, or expired
         "404":
           description: Credential not found in .env
         "401":
