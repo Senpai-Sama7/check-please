@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import hmac as _hmac
 import io
 import json
 import os
@@ -20,6 +21,7 @@ from urllib.parse import parse_qs
 DIR = Path(__file__).resolve().parent
 PORT = 8457
 VAULT_FILE = DIR / ".vault.json"
+ACCOUNT_FILE = DIR / ".account.json"
 
 # ── Vault helpers ──────────────────────────────────────────────────────────
 
@@ -47,6 +49,52 @@ def _pw_strength(pw: str) -> dict:
     score = sum([length >= 8, length >= 12, length >= 16, has_upper, has_lower, has_digit, has_special])
     labels = ["Very Weak", "Weak", "Weak", "Fair", "Good", "Strong", "Very Strong", "Excellent"]
     return {"score": score, "max": 7, "label": labels[min(score, 7)], "length": length}
+
+# ── Account helpers (passkey-encrypted) ────────────────────────────────────
+
+def _derive_key(passkey: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", passkey.encode(), salt, 200_000)
+
+def _encrypt(data: str, passkey: str) -> dict:
+    salt = secrets.token_bytes(16)
+    key = _derive_key(passkey, salt)
+    # XOR stream cipher with HMAC — zero-dependency encryption
+    stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(data))
+    ct = bytes(a ^ b for a, b in zip(data.encode(), stream))
+    mac = _hmac.new(key, ct, "sha256").hexdigest()
+    return {"salt": salt.hex(), "ct": ct.hex(), "mac": mac, "v": 1}
+
+def _decrypt(blob: dict, passkey: str) -> str | None:
+    try:
+        salt = bytes.fromhex(blob["salt"])
+        ct = bytes.fromhex(blob["ct"])
+        key = _derive_key(passkey, salt)
+        stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(ct))
+        return bytes(a ^ b for a, b in zip(ct, stream)).decode()
+    except Exception:
+        return None
+
+def _load_account() -> dict | None:
+    if ACCOUNT_FILE.is_file():
+        try:
+            return json.loads(ACCOUNT_FILE.read_text())
+        except Exception:
+            return None
+    return None
+
+def _save_account(data: dict) -> None:
+    ACCOUNT_FILE.write_text(json.dumps(data, indent=2))
+    os.chmod(ACCOUNT_FILE, 0o600)
+
+def _verify_passkey(passkey: str) -> bool:
+    acct = _load_account()
+    if not acct:
+        return False
+    result = _decrypt(acct.get("check", {}), passkey)
+    return result == "check_please_ok"
+
+def _account_exists() -> bool:
+    return ACCOUNT_FILE.is_file()
 
 
 # ── HTML: Full SPA ─────────────────────────────────────────────────────────
@@ -215,6 +263,29 @@ tr:hover td{background:var(--accent-glow2)}
 /* ── Pre/code ── */
 .pre{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;font-family:var(--font-mono);font-size:.8rem;white-space:pre-wrap;max-height:400px;overflow-y:auto;line-height:1.6;color:var(--text2)}
 
+/* ── Lock screen ── */
+.lock-screen{position:fixed;inset:0;background:var(--bg);z-index:300;display:flex;align-items:center;justify-content:center}
+.lock-screen.hidden{display:none}
+.lock-box{text-align:center;width:360px;padding:40px}
+.lock-box svg{width:56px;height:56px;margin-bottom:20px}
+.lock-box h1{font-size:1.5rem;font-weight:800;letter-spacing:-.03em;margin-bottom:6px}
+.lock-box h1 span{background:linear-gradient(135deg,var(--text),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.lock-box p{color:var(--text2);font-size:.875rem;margin-bottom:24px;line-height:1.5}
+.lock-box .input-group{text-align:left;margin-bottom:16px}
+.lock-box .lock-err{color:var(--red);font-size:.8rem;margin-bottom:12px;min-height:1.2em}
+
+/* ── Onboarding overlay ── */
+.onboard-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:250;display:flex;align-items:center;justify-content:center}
+.onboard-overlay.hidden{display:none}
+.onboard-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px;width:90%;max-width:560px;text-align:center;box-shadow:var(--shadow-lg);animation:modalIn .3s ease}
+.onboard-card h2{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+.onboard-card p{color:var(--text2);font-size:.9rem;line-height:1.6;margin-bottom:24px;max-width:420px;margin-left:auto;margin-right:auto}
+.onboard-card .step-icon{font-size:2.5rem;margin-bottom:16px}
+.onboard-dots{display:flex;gap:8px;justify-content:center;margin-bottom:24px}
+.onboard-dots .dot{width:8px;height:8px;border-radius:50%;background:var(--surface3);transition:var(--transition)}
+.onboard-dots .dot.active{background:var(--accent);width:24px;border-radius:4px}
+.onboard-actions{display:flex;gap:10px;justify-content:center}
+
 /* ── Responsive ── */
 @media(max-width:768px){
   .sidebar{display:none}
@@ -223,6 +294,44 @@ tr:hover td{background:var(--accent-glow2)}
 </style>
 </head>
 <body>
+
+<!-- ═══ Lock Screen ═══ -->
+<div class="lock-screen" id="lock-screen">
+  <div class="lock-box">
+    <svg viewBox="0 0 56 56" fill="none"><rect width="56" height="56" rx="14" fill="url(#lg)"/><path d="M18 28l7 7 13-13" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lg" x1="0" y1="0" x2="56" y2="56"><stop stop-color="#7c5cfc"/><stop offset="1" stop-color="#9b7eff"/></linearGradient></defs></svg>
+    <h1><span>Check Please</span></h1>
+    <!-- Setup mode -->
+    <div id="lock-setup">
+      <p>Welcome! Create a passkey to protect your vault. This passkey encrypts all stored passwords locally.</p>
+      <div class="input-group"><label>Display Name</label><input type="text" id="setup-name" placeholder="Your name"></div>
+      <div class="input-group" style="margin-top:12px"><label>Create Passkey</label><input type="password" id="setup-pass" placeholder="Choose a strong passkey"></div>
+      <div class="input-group" style="margin-top:12px"><label>Confirm Passkey</label><input type="password" id="setup-pass2" placeholder="Confirm passkey"></div>
+      <div class="lock-err" id="setup-err"></div>
+      <button class="btn primary" onclick="createAccount()" style="width:100%">Create Account</button>
+    </div>
+    <!-- Login mode -->
+    <div id="lock-login" style="display:none">
+      <p id="lock-greeting">Enter your passkey to unlock.</p>
+      <div class="input-group"><label>Passkey</label><input type="password" id="login-pass" placeholder="Enter passkey" onkeydown="if(event.key==='Enter')unlock()"></div>
+      <div class="lock-err" id="login-err"></div>
+      <button class="btn primary" onclick="unlock()" style="width:100%">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Onboarding Tour ═══ -->
+<div class="onboard-overlay hidden" id="onboard">
+  <div class="onboard-card">
+    <div class="step-icon" id="ob-icon">👋</div>
+    <h2 id="ob-title">Welcome to Check Please</h2>
+    <p id="ob-desc">Let's take a quick tour of what you can do. This only takes 30 seconds.</p>
+    <div class="onboard-dots" id="ob-dots"></div>
+    <div class="onboard-actions">
+      <button class="btn" onclick="skipTour()">Skip Tour</button>
+      <button class="btn primary" onclick="nextStep()" id="ob-next">Get Started →</button>
+    </div>
+  </div>
+</div>
 
 <!-- Toast container -->
 <div class="toast-container" id="toasts"></div>
@@ -352,6 +461,18 @@ tr:hover td{background:var(--accent-glow2)}
 <div class="page" id="page-settings">
   <div class="card-grid cols-2">
     <div class="card">
+      <div class="card-header"><h2>Account</h2></div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="input-group"><label>Display Name</label><input type="text" id="set-name" readonly></div>
+        <div class="input-group"><label>Account Created</label><input type="text" id="set-created" readonly></div>
+        <div class="input-group"><label>Change Passkey</label>
+          <input type="password" id="set-old-pass" placeholder="Current passkey">
+          <input type="password" id="set-new-pass" placeholder="New passkey" style="margin-top:6px">
+        </div>
+        <button class="btn primary" onclick="changePasskey()">🔑 Update Passkey</button>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header"><h2>Application</h2></div>
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="input-group"><label>.env File Location</label><input type="text" id="env-path" value=".env" readonly></div>
@@ -365,6 +486,18 @@ tr:hover td{background:var(--accent-glow2)}
         <div class="input-group"><label>Port</label><input type="text" value="8457" readonly></div>
         <div class="input-group"><label>Binding</label><input type="text" value="127.0.0.1 (localhost only)" readonly></div>
         <button class="btn danger" onclick="if(confirm('Stop the server?')){location='/stop'}">⏹ Stop Server</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Help</h2></div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <button class="btn" onclick="startTour()">🎓 Replay App Tour</button>
+        <button class="btn" onclick="go('providers')">🌐 View Supported Providers</button>
+        <div style="color:var(--text2);font-size:.8rem;line-height:1.6;margin-top:4px">
+          <strong>Keyboard shortcuts:</strong><br>
+          Escape — close modals &amp; dialogs<br>
+          All data stored locally — nothing leaves your machine.
+        </div>
       </div>
     </div>
   </div>
@@ -654,8 +787,82 @@ function exportCSV(){
 function closeModals(){document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('open'));}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
 
+// ── Account / Lock ──
+async function checkAccount(){
+  const d=await api('/api/account/status');
+  if(d.exists){
+    E('lock-setup').style.display='none';E('lock-login').style.display='block';
+    if(d.name)E('lock-greeting').textContent='Welcome back, '+d.name+'. Enter your passkey.';
+  }else{
+    E('lock-setup').style.display='block';E('lock-login').style.display='none';
+  }
+}
+
+async function createAccount(){
+  const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;
+  if(!p1||p1.length<4){E('setup-err').textContent='Passkey must be at least 4 characters.';return;}
+  if(p1!==p2){E('setup-err').textContent='Passkeys do not match.';return;}
+  const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});
+  if(d.error){E('setup-err').textContent=d.error;return;}
+  E('lock-screen').classList.add('hidden');
+  startTour();
+}
+
+async function unlock(){
+  const pw=E('login-pass').value;
+  if(!pw){E('login-err').textContent='Enter your passkey.';return;}
+  const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});
+  if(!d.ok){E('login-err').textContent='Incorrect passkey.';return;}
+  E('lock-screen').classList.add('hidden');
+  loadVault();loadAccountSettings();
+}
+
+async function changePasskey(){
+  const old=E('set-old-pass').value,nw=E('set-new-pass').value;
+  if(!old||!nw){toast('Fill in both fields','error');return;}
+  if(nw.length<4){toast('New passkey must be at least 4 characters','error');return;}
+  const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});
+  if(d.error){toast(d.error,'error');return;}
+  toast('Passkey updated','success');E('set-old-pass').value='';E('set-new-pass').value='';
+}
+
+async function loadAccountSettings(){
+  const d=await api('/api/account/status');
+  if(d.name)E('set-name').value=d.name;
+  if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
+}
+
+// ── Onboarding Tour ──
+const TOUR_STEPS=[
+  {icon:'👋',title:'Welcome to Check Please',desc:'Your secure credential broker and password vault. Everything runs locally — your secrets never leave this machine.'},
+  {icon:'🔍',title:'Credential Audit',desc:'Scan your .env file and validate every API key against live provider endpoints. Supports 16 services including OpenAI, GitHub, Stripe, and more.'},
+  {icon:'🔐',title:'Password Vault',desc:'Store passwords securely with AES-level encryption. Add entries manually, generate strong passwords, or import from CSV files.'},
+  {icon:'🤖',title:'AI Agent Broker',desc:'Give your AI coding agents (Codex, Claude Code, Gemini) scoped access to credentials — with usage limits, expiry, and full audit logging.'},
+  {icon:'📥',title:'Import & Export',desc:'Import passwords from CSV files (Chrome, 1Password, Bitwarden format). Export your vault anytime as CSV.'},
+  {icon:'🎲',title:'Password Generator',desc:'Generate cryptographically secure passwords with customizable length and character sets. Built-in strength meter shows you how strong each password is.'},
+  {icon:'✅',title:'You\'re All Set!',desc:'Head to the Dashboard to run your first audit, or open the Vault to start storing passwords. You can replay this tour anytime from Settings → Help.'},
+];
+let tourStep=0;
+
+function startTour(){
+  tourStep=0;E('onboard').classList.remove('hidden');renderTourStep();
+}
+function skipTour(){E('onboard').classList.add('hidden');loadVault();loadAccountSettings();}
+function nextStep(){
+  tourStep++;
+  if(tourStep>=TOUR_STEPS.length){E('onboard').classList.add('hidden');loadVault();loadAccountSettings();return;}
+  renderTourStep();
+}
+function renderTourStep(){
+  const s=TOUR_STEPS[tourStep];
+  E('ob-icon').textContent=s.icon;E('ob-title').textContent=s.title;E('ob-desc').textContent=s.desc;
+  let dots='';for(let i=0;i<TOUR_STEPS.length;i++)dots+='<div class="dot'+(i===tourStep?' active':'')+'"></div>';
+  E('ob-dots').innerHTML=dots;
+  E('ob-next').textContent=tourStep===TOUR_STEPS.length-1?'Finish ✓':'Next →';
+}
+
 // ── Init ──
-loadVault();
+checkAccount();
 </script>
 </body></html>"""
 
@@ -734,6 +941,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self._run_cmd(["--self-test"]))
         elif path == "/api/providers":
             self._json(self._run_cmd(["--list-providers"]))
+        elif path == "/api/account/status":
+            acct = _load_account()
+            if acct:
+                self._json({"exists": True, "name": acct.get("name", ""), "created": acct.get("created", "")})
+            else:
+                self._json({"exists": False})
         elif path == "/api/vault":
             self._json({"entries": _load_vault()})
         elif path == "/api/vault/export":
@@ -754,7 +967,52 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         body = self._read_body()
 
-        if path == "/api/vault":
+        if path == "/api/account/create":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            if _account_exists():
+                self._json({"error": "Account already exists"}, 400)
+                return
+            passkey = data.get("passkey", "")
+            if len(passkey) < 4:
+                self._json({"error": "Passkey too short"}, 400)
+                return
+            check_blob = _encrypt("check_please_ok", passkey)
+            _save_account({
+                "name": data.get("name", ""),
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "check": check_blob,
+            })
+            self._json({"ok": True})
+        elif path == "/api/account/verify":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            ok = _verify_passkey(data.get("passkey", ""))
+            self._json({"ok": ok})
+        elif path == "/api/account/change-passkey":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            if not _verify_passkey(data.get("old_passkey", "")):
+                self._json({"error": "Current passkey is incorrect"}, 403)
+                return
+            new_passkey = data.get("new_passkey", "")
+            if len(new_passkey) < 4:
+                self._json({"error": "New passkey too short"}, 400)
+                return
+            acct = _load_account() or {}
+            acct["check"] = _encrypt("check_please_ok", new_passkey)
+            _save_account(acct)
+            self._json({"ok": True})
+        elif path == "/api/vault":
             try:
                 data = json.loads(body)
             except Exception:
