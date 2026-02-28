@@ -40,30 +40,44 @@ The Dashboard "Organize" button pushes a sub-screen that runs `.env` organizatio
 | 8 | Audits credentials against live APIs |
 | 9 | Prunes dead keys from `.env.organized` |
 
-## Providers (13)
+## Providers (16)
 
 | Provider | Endpoint | Key Pattern |
 |----------|----------|-------------|
 | Anthropic | `/v1/models` | `sk-ant-*` |
 | Cerebras | `/v1/models` | `csk-*` |
 | DeepSeek | `/models` | `sk-*` (hex) |
-| GitHub | `/user` | `ghp_*`, `gho_*` |
+| GitHub | `/user` | `ghp_*`, `gho_*`, `github_pat_*` |
 | Google/Gemini | `/v1beta/models` | `AIza*` |
 | Groq | `/openai/v1/models` | `gsk_*` |
 | HuggingFace | `/api/whoami-v2` | `hf_*` |
 | Mistral | `/v1/models` | alphanumeric |
 | NVIDIA | `/v1/models` | `nvapi-*` |
-| OpenAI | `/v1/models` | `sk-proj-*` |
+| OpenAI | `/v1/models` | `sk-*` |
 | OpenRouter | `/api/v1/auth/key` | `sk-or-v1-*` |
-| Stripe | `/v1/account` | `sk_live_*` |
+| SendGrid | `/v3/user/profile` | `SG.*.*` |
+| Slack | `/auth.test` | `xox[bpas]-*` |
+| Stripe | `/v1/account` | `sk_live_*`, `rk_live_*` |
 | Together | `/v1/models` | hex (64 chars) |
 | Twilio | `/Accounts/{SID}.json` | hex (32 chars) |
 
 ## Output Files
 
 - `.env.organized` — clean, categorized env file (regenerated each run)
-- `audit_report.json` — JSON audit results with fingerprints and status
+- `audit_report.json` — JSON audit results with summary and per-key status
+- `audit.log` — structured JSON-line log of all audit events (timestamped)
 - `.env` — original file (never modified)
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Validation cache | TTL-based (1hr) cache prevents redundant API calls across runs |
+| Audit log | Structured JSON-line log (`audit.log`) of every validation, auto-detect, and bail event |
+| Multi-level redaction | `PARTIAL` (prefix...suffix), `FULL` ([REDACTED]), `HASH` ([sha256:...]) |
+| Auto-detect by key pattern | If env var name doesn't match a provider, tries matching the key value against all provider patterns |
+| Failed-provider bail | Skips a provider after 3 consecutive auth failures |
+| Audit summary | Aggregate stats (valid/failed/errors, cache hits, auto-detected, providers skipped, avg latency) |
 
 ## Adding a Provider
 
@@ -104,3 +118,4 @@ Auto-discovered on next run. No registration needed.
 - `.env` permissions checked (warns if world-readable)
 - Dead keys auto-pruned from organized file
 - httpx debug logging disabled to prevent key leakage
+- Cache keys are SHA-256 hashes of `provider:key` — no raw keys stored in memory
