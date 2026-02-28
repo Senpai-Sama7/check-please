@@ -18,6 +18,13 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+TUI_MODE=false
+for arg in "$@"; do
+    case "$arg" in
+        --tui|-t) TUI_MODE=true ;;
+    esac
+done
+
 step=0
 fail() { printf '\n\033[0;31m✗ FAILED at step %d: %s\033[0m\n' "$step" "$1" >&2; exit 1; }
 info() { printf '\033[0;36m▸ %s\033[0m\n' "$1"; }
@@ -72,6 +79,9 @@ else
     warn "No requirements.txt found — installing defaults"
     pip install --quiet httpx rich python-dotenv || fail "pip install failed"
 fi
+if $TUI_MODE; then
+    pip install --quiet textual 2>/dev/null || fail "pip install textual failed"
+fi
 ok "Dependencies installed"
 
 # ── Step 4: Verify .env exists ────────────────────────────────
@@ -82,6 +92,13 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 line_count=$(wc -l < "$ENV_FILE")
 ok ".env found ($line_count lines)"
+
+# ── TUI mode: launch Textual app and exit ─────────────────────
+if $TUI_MODE; then
+    ok "Launching TUI..."
+    python "$DIR/tui.py"
+    exit 0
+fi
 
 # ── Step 5: File permissions check ────────────────────────────
 step=$((step+1))

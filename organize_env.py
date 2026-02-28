@@ -267,3 +267,23 @@ if __name__ == "__main__":
         print(f"Error: {src} not found")
         sys.exit(1)
     organize_env(src, dst)
+
+
+def organize(input_path: Path, output_path: Path) -> dict:
+    """Wrapper that returns stats for TUI integration."""
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        organize_env(input_path, output_path)
+    output = buf.getvalue()
+    total = 0
+    cats = 0
+    unparse = 0
+    import re
+    m = re.search(r"Organized (\d+) entries into (\d+) categories", output)
+    if m:
+        total, cats = int(m.group(1)), int(m.group(2))
+    m2 = re.search(r"(\d+) unparseable", output)
+    if m2:
+        unparse = int(m2.group(1))
+    return {"total": total, "categories": cats, "unparseable": unparse}

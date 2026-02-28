@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# One-click launcher for the check_please TUI
+exec "$(dirname "$0")/start.sh" --tui "$@"

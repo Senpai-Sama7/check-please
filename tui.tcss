@@ -1,0 +1,179 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   check_please — Premium TUI Theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Global ──────────────────────────────────────────────────────────────── */
+
+Screen {
+    background: $surface;
+}
+
+Header {
+    background: #1a1b26;
+    color: #7aa2f7;
+    text-style: bold;
+}
+
+Footer {
+    background: #1a1b26;
+}
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+
+.screen-title {
+    text-style: bold;
+    color: #7aa2f7;
+    padding: 1 0 0 0;
+    text-align: left;
+}
+
+.section-title {
+    text-style: bold;
+    color: #bb9af7;
+    padding: 1 0 0 0;
+}
+
+/* ── Stat Cards ──────────────────────────────────────────────────────────── */
+
+#stat-row {
+    height: auto;
+    padding: 1 2;
+    align: center middle;
+}
+
+.stat-card {
+    width: 1fr;
+    height: 5;
+    margin: 0 1;
+    padding: 1 2;
+    background: #1a1b26;
+    border: tall #3b4261;
+    text-align: center;
+}
+
+.stat-card:hover {
+    border: tall #7aa2f7;
+}
+
+.stat-value {
+    text-style: bold;
+    color: #c0caf5;
+    text-align: center;
+    width: 100%;
+}
+
+.stat-label {
+    color: #565f89;
+    text-align: center;
+    width: 100%;
+}
+
+.card-green .stat-value {
+    color: #9ece6a;
+}
+
+.card-red .stat-value {
+    color: #f7768e;
+}
+
+/* ── Data Tables ─────────────────────────────────────────────────────────── */
+
+DataTable {
+    margin: 1 2;
+    height: auto;
+    max-height: 24;
+    background: #1a1b26;
+    scrollbar-color: #3b4261;
+    scrollbar-color-hover: #7aa2f7;
+}
+
+DataTable > .datatable--header {
+    background: #24283b;
+    color: #7aa2f7;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #292e42;
+    color: #c0caf5;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+#action-row {
+    height: auto;
+    padding: 1 2;
+    align: center middle;
+}
+
+Button {
+    margin: 0 1;
+    min-width: 20;
+}
+
+#audit-controls {
+    height: auto;
+    padding: 0 2;
+}
+
+/* ── Progress ────────────────────────────────────────────────────────────── */
+
+ProgressBar {
+    margin: 1 2;
+    padding: 0 1;
+}
+
+ProgressBar Bar {
+    color: #7aa2f7;
+}
+
+ProgressBar PercentageStatus {
+    color: #565f89;
+}
+
+/* ── Log ─────────────────────────────────────────────────────────────────── */
+
+Log {
+    margin: 1 2;
+    height: auto;
+    min-height: 8;
+    max-height: 30;
+    background: #1a1b26;
+    border: tall #3b4261;
+    padding: 1;
+    scrollbar-color: #3b4261;
+    scrollbar-color-hover: #7aa2f7;
+}
+
+/* ── Audit Status ────────────────────────────────────────────────────────── */
+
+.audit-status {
+    padding: 1 2;
+    text-style: bold;
+    color: #e0af68;
+}
+
+/* ── Rules ────────────────────────────────────────────────────────────────── */
+
+Rule {
+    margin: 0 2;
+    color: #3b4261;
+}
+
+/* ── Tabbed Content ──────────────────────────────────────────────────────── */
+
+TabbedContent {
+    margin: 1 2;
+}
+
+TabPane {
+    padding: 1;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+
+VerticalScroll {
+    scrollbar-color: #3b4261;
+    scrollbar-color-hover: #7aa2f7;
+    scrollbar-color-active: #bb9af7;
+}
