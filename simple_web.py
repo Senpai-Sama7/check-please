@@ -21,11 +21,13 @@ from urllib.parse import parse_qs
 
 DIR = Path(__file__).resolve().parent
 PORT = 8457
-ACCOUNTS_DIR = DIR / ".accounts"
-VAULTS_DIR = DIR / ".vaults"
-# Legacy single-file paths (for migration)
-_LEGACY_ACCOUNT = DIR / ".account.json"
-_LEGACY_VAULT = DIR / ".vault.json"
+# Shared data dir — same location regardless of how app is launched
+DATA_DIR = Path.home() / ".local" / "share" / "check-please"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+ACCOUNTS_DIR = DATA_DIR / ".accounts"
+VAULTS_DIR = DATA_DIR / ".vaults"
+_LEGACY_ACCOUNT = DATA_DIR / ".account.json"
+_LEGACY_VAULT = DATA_DIR / ".vault.json"
 
 _current_user: str = ""  # set on login
 
@@ -372,7 +374,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <div id="lock-login" style="display:none">
       <p id="lock-greeting">Sign in to your vault.</p>
       <div id="account-picker" style="margin-bottom:14px">
-        <div class="input-group"><label>Username</label><input type="text" id="login-user-input" placeholder="Enter username" style="display:none"><select id="login-user" onchange="onUserPick()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:10px 14px;font-size:.875rem;font-family:var(--font);width:100%"></select></div>
+        <div class="input-group"><label>Username</label><input type="text" id="login-user-input" placeholder="Enter username" autocomplete="username"></div>
       </div>
       <div class="input-group"><label>Password</label><input type="password" id="login-pass" placeholder="Enter password" onkeydown="if(event.key==='Enter')unlock()"></div>
       <div class="lock-err" id="login-err"></div>
@@ -937,12 +939,14 @@ async function checkAccount(){
   }else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
 function populateLogin(users){
-  const sel=E('login-user'),inp=E('login-user-input');sel.innerHTML='';
-  if(users&&users.length){sel.style.display='';inp.style.display='none';users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});
-    E('lock-greeting').textContent=users.length===1?'Welcome back.':'Choose an account.';
-  }else{sel.style.display='none';inp.style.display='';inp.value='';E('lock-greeting').textContent='Sign in to your vault.';}
+  const inp=E('login-user-input');
+  let dl=document.getElementById('user-suggestions');if(!dl){dl=document.createElement('datalist');dl.id='user-suggestions';document.body.appendChild(dl);}
+  dl.innerHTML='';if(users)users.forEach(u=>{const o=document.createElement('option');o.value=u;dl.appendChild(o);});
+  inp.setAttribute('list','user-suggestions');
+  if(users&&users.length===1&&!inp.value)inp.value=users[0];
+  E('lock-greeting').textContent=users&&users.length?'Welcome back.':'Sign in to your vault.';
 }
-function getLoginUser(){const sel=E('login-user'),inp=E('login-user-input');return sel.style.display!=='none'?sel.value:inp.value.trim();}
+function getLoginUser(){return E('login-user-input').value.trim();}
 function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style.display='none';E('lock-setup').style.display='block';}
 function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';
   api('/api/account/status').then(d=>populateLogin(d.users||[]));}
@@ -1037,7 +1041,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._html(HTML)
         elif path == "/api/audit":
-            env = DIR / ".env"
+            env = DATA_DIR / ".env"
             if not env.is_file():
                 self._json({"error": "No .env file found. Create a .env file with your API keys."}, 400)
                 return
@@ -1050,13 +1054,13 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 self._json({"error": r.stderr or r.stdout or "Audit failed"})
         elif path == "/api/preview":
-            env = DIR / ".env"
+            env = DATA_DIR / ".env"
             if not env.is_file():
                 self._json({"error": "No .env file found"}, 400)
                 return
             self._json(self._run_cmd(["--dry-run", "--env", str(env)]))
         elif path == "/api/env/read":
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             if not env_path.is_file():
                 self._json({"vars": {}})
                 return
@@ -1372,7 +1376,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"imported": count})
         elif path == "/api/env/upload":
             text = body.decode("utf-8", errors="replace")
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             env_path.write_text(text)
             os.chmod(env_path, 0o600)
             count = sum(1 for line in text.splitlines() if line.strip() and not line.strip().startswith("#") and "=" in line)
@@ -1384,7 +1388,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._json({"error": "Invalid JSON"}, 400)
                 return
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             lines = []
             if env_path.is_file():
                 lines = env_path.read_text().splitlines()
@@ -1404,7 +1408,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             to_remove = set(data.get("vars", []))
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             if not env_path.is_file():
                 self._json({"error": "No .env file"}, 400)
                 return
@@ -1421,7 +1425,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             wanted = set(data.get("vars", []))
             groups: dict[str, list[str]] = data.get("groups", {})  # provider->vars
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             existing: dict[str, str] = {}
             if env_path.is_file():
                 for line in env_path.read_text().splitlines():
@@ -1455,7 +1459,7 @@ class Handler(BaseHTTPRequestHandler):
             wanted = set(data.get("vars", []))
             groups: dict[str, list[str]] = data.get("groups", {})
             template = data.get("template", False)
-            env_path = DIR / ".env"
+            env_path = DATA_DIR / ".env"
             existing: dict[str, str] = {}
             if env_path.is_file():
                 for line in env_path.read_text().splitlines():
