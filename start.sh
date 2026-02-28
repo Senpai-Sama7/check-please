@@ -140,11 +140,19 @@ ok "Dependencies installed"
 # ── Step 4: Verify .env exists ────────────────────────────────
 step=$((step+1))
 info "Looking for your API keys..."
-if [[ ! -f "$ENV_FILE" ]]; then
+if [[ "$MODE" == "web" || "$MODE" == "tui" || "$MODE" == "desktop" ]]; then
+    if [[ -f "$ENV_FILE" ]]; then
+        line_count=$(wc -l < "$ENV_FILE")
+        ok "Found your .env file ($line_count lines)"
+    else
+        ok "No .env yet — you can upload or create one in the app"
+    fi
+elif [[ ! -f "$ENV_FILE" ]]; then
     fail "No .env file found — put your API keys in a file called .env in this folder"
+else
+    line_count=$(wc -l < "$ENV_FILE")
+    ok "Found your .env file ($line_count lines)"
 fi
-line_count=$(wc -l < "$ENV_FILE")
-ok "Found your .env file ($line_count lines)"
 
 # Mark first run complete
 touch "$DIR/.check_please_seen"
