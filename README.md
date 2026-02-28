@@ -5,10 +5,26 @@ Credential audit pipeline — organizes a messy `.env` file and validates API ke
 ## Quick Start
 
 ```bash
-./start.sh
+./start.sh        # CLI pipeline
+./start.sh --tui  # Terminal UI
+./check_please    # One-click TUI launcher
 ```
 
-That's it. The script handles venv setup, dependency installation, and runs the full pipeline.
+The script handles venv setup, dependency installation, and runs the full pipeline.
+
+## TUI
+
+A Textual-based terminal UI with four screens:
+
+| Key | Screen | Description |
+|-----|--------|-------------|
+| `d` | Dashboard | Stat cards, full audit results table, action buttons |
+| `a` | Audit | Run the full pipeline with live progress and log |
+| `p` | Report | Drill into results by provider, by status, or raw JSON |
+| `?` | Help | Show keybindings |
+| `q` | Quit | Exit |
+
+The Dashboard "Organize" button pushes a sub-screen that runs `.env` organization. Press `Escape` to return from any sub-screen.
 
 ## What It Does
 
