@@ -84,7 +84,10 @@ eval $(./start.sh --agent-export)
 2. If using HTTP API mode, the bearer token is printed to the user's terminal on startup.
 3. HTTP endpoint: POST http://127.0.0.1:8458/credentials/{VAR_NAME} with Authorization: Bearer <token>
 4. To list available credentials: GET http://127.0.0.1:8458/credentials
-5. All access is logged. Respect the permissions file — denied requests return 403. -->
+5. All access is logged. Respect the permissions file — denied requests return 403.
+6. Report token usage: POST http://127.0.0.1:8458/usage with {"key":"VAR_NAME","tokens":N,"model":"model-name"}
+7. MCP agents: use the report_usage tool after API calls to help the owner track costs.
+8. If you get a 429 response, you've hit the RPM limit — back off and retry. -->
 
 ### Scoped Permissions
 
@@ -94,17 +97,52 @@ Control exactly how much access each credential gets:
 {
   "allowed": [
     "OPENAI_API_KEY",
-    {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h"},
+    {"name": "ANTHROPIC_API_KEY", "max_uses": 50, "expires": "2h", "rpm_limit": 60},
     {"name": "GITHUB_TOKEN", "max_uses": 10, "expires": "30m"}
   ],
-  "token_ttl": "1h"
+  "token_ttl": "1h",
+  "alerts": {
+    "token_threshold": 100000,
+    "webhook": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  }
 }
 ```
 
 - Plain strings = unlimited access
 - `max_uses` = deny after N requests
 - `expires` = deny after time limit (`30s`, `5m`, `2h`, `1d`)
+- `rpm_limit` = max requests per minute per credential (returns 429 when exceeded)
 - `token_ttl` = bearer token auto-expires
+- `alerts.token_threshold` = alert when cumulative tokens exceed this number
+- `alerts.webhook` = Slack/Discord webhook URL for push alerts (optional)
+
+### Usage Tracking & Alerts
+
+Every credential request is counted. Agents can report token consumption back, and you get real-time visibility into what your agents are doing.
+
+**Monitor from your terminal:**
+```bash
+# See all usage
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage
+
+# Per-key breakdown
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage/OPENAI_API_KEY
+```
+
+**Agents report tokens back:**
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"key":"OPENAI_API_KEY","tokens":1500,"model":"gpt-4"}' \
+  http://127.0.0.1:8458/usage
+```
+
+MCP agents (Claude Code, Copilot) use the `report_usage` tool automatically.
+
+**Alerts fire when:**
+- An agent exceeds the RPM limit → 429 returned + terminal warning + webhook
+- Cumulative tokens exceed `token_threshold` → terminal warning + webhook
+
+All usage is logged to `agent_usage.log` (append-only JSON, one entry per line).
 
 ### HTTP API Reference
 
@@ -114,6 +152,9 @@ Control exactly how much access each credential gets:
 | GET | `/credentials` | List allowed credential names (no values) |
 | POST | `/credentials/{VAR}` | Get credential value (if permitted) |
 | GET | `/health` | Server status |
+| GET | `/usage` | Usage summary for all credentials |
+| GET | `/usage/{VAR}` | Per-credential usage stats (requests, tokens, RPM) |
+| POST | `/usage` | Agent reports token consumption |
 
 All requests require `Authorization: Bearer <token>` header. Token is displayed on startup.
 
