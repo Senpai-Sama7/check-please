@@ -20,14 +20,17 @@ check-please --dry-run --env .env    # preview without API calls
 ## Quick Start (no install)
 
 ```bash
-./start.sh              # CLI pipeline (handles venv + deps)
-./start.sh --tui        # Terminal UI
+./start.sh              # Guided mode (first run: tutorial, then: easy mode)
+./start.sh --easy       # Step-by-step wizard
+./start.sh --simple     # Numbered menu — no commands to remember
+./start.sh --web        # Browser-based visual interface
+./start.sh --tui        # Rich terminal UI (requires textual)
+./start.sh --guide      # First-time tutorial
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
-./check_please          # One-click TUI launcher
 ```
 
-`start.sh` handles venv setup, dependency installation, and runs the full pipeline.
+`start.sh` handles venv setup, dependency installation, and launches your chosen interface.
 
 ## CLI
 

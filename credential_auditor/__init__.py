@@ -1,2 +1,2 @@
-# credential_auditor — synthesized from 9 variant analysis
+# credential_auditor
 __version__ = "1.0.0"
