@@ -72,7 +72,8 @@ def main() -> int:
     render_table(results, console)
 
     if args.output:
-        if not write_json(results, args.output, force_insecure=args.force_insecure_output, console=console):
+        summary = getattr(results, "summary", None)
+        if not write_json(results, args.output, force_insecure=args.force_insecure_output, console=console, summary=summary):
             return 2
 
     has_issues = any(r.status != "valid" for r in results)

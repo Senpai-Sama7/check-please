@@ -21,12 +21,12 @@ class NvidiaProvider(Provider):
         Optional[dict], Optional[str],
     ]:
         resp = await client.get(
-            "https://integrate.api.nvidia.com/v1/models",
+            "https://api.nvcf.nvidia.com/v2/nvcf/functions",
             headers={"Authorization": f"Bearer {key}"},
         )
         if resp.status_code == 200:
-            count = len(resp.json().get("data", []))
-            return "valid", f"{count} models accessible", None, None, None, None
+            count = len(resp.json().get("functions", []))
+            return "valid", f"{count} functions accessible", None, None, None, None
         if resp.status_code in (401, 403):
             return "auth_failed", None, None, None, None, "Invalid API key"
         if resp.status_code == 429:
