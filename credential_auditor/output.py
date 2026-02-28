@@ -14,7 +14,7 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
-from credential_auditor.models import KeyResult
+from credential_auditor.models import AuditSummary, KeyResult
 from credential_auditor.security import check_output_permissions, redact_key
 
 _STATUS_COLORS = {
@@ -52,6 +52,7 @@ def write_json(
     path: Path,
     force_insecure: bool = False,
     console: Optional[Console] = None,
+    summary: Optional[AuditSummary] = None,
 ) -> bool:
     """Write canonical JSON output. Returns True on success."""
     console = console or Console(stderr=True)
@@ -61,7 +62,9 @@ def write_json(
             f"Use --force-insecure-output to override.[/red]"
         )
         return False
-    payload = [r.to_dict() for r in results]
+    payload: dict | list = [r.to_dict() for r in results]
+    if summary:
+        payload = {"summary": summary.to_dict(), "results": payload}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     console.print(f"[green]Results written to {path}[/green]")
     return True

@@ -24,6 +24,10 @@ Status = Literal[
 
 VALID_STATUSES: frozenset[str] = frozenset(Status.__args__)  # type: ignore[attr-defined]
 
+FAILING_STATUSES: frozenset[str] = frozenset(
+    {"auth_failed", "suspended_account", "quota_exhausted", "insufficient_scope"}
+)
+
 
 @dataclass(frozen=True)
 class KeyFingerprint:
@@ -81,4 +85,34 @@ class KeyResult:
             "usage_stats": self.usage_stats,
             "latency_ms": round(self.latency_ms, 2),
             "error_detail": self.error_detail,
+        }
+
+
+@dataclass(frozen=True)
+class AuditSummary:
+    """Aggregate stats for an audit run — ported from ultimate_credential_auditor."""
+
+    total_keys: int
+    valid: int
+    failed: int
+    errors: int
+    providers_checked: int
+    providers_skipped: int  # failed-provider bail
+    cache_hits: int
+    cache_misses: int
+    total_latency_ms: float
+    auto_detected: int  # keys matched by key pattern, not env var name
+
+    def to_dict(self) -> dict:
+        return {
+            "total_keys": self.total_keys,
+            "valid": self.valid,
+            "failed": self.failed,
+            "errors": self.errors,
+            "providers_checked": self.providers_checked,
+            "providers_skipped": self.providers_skipped,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "avg_latency_ms": round(self.total_latency_ms / self.total_keys, 2) if self.total_keys else 0,
+            "auto_detected": self.auto_detected,
         }

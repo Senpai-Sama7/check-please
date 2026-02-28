@@ -117,6 +117,35 @@ def _extract_rate_limit(response: httpx.Response, prefix: str = "x-ratelimit") -
         return None
 
 
+def _literal_prefix_len(pattern: str) -> int:
+    """Count leading literal chars in a regex pattern (after ^)."""
+    s = pattern.lstrip("^")
+    count = 0
+    for ch in s:
+        if ch in r".[]()*+?{}|\\":
+            break
+        count += 1
+    return count
+
+
+def detect_provider_by_key(key: str) -> Optional[Provider]:
+    """Auto-detect provider from key value pattern (not env var name).
+
+    Ported from ultimate_credential_auditor's ProviderDetector concept.
+    Tries each registered provider's key_format regex against the raw key.
+    Prefers more specific matches (longer literal prefix) over generic ones.
+    """
+    matches = [
+        (name, cls) for name, cls in Provider.get_registry().items()
+        if cls.key_format.match(key)
+    ]
+    if not matches:
+        return None
+    # Most specific = longest literal prefix in the regex
+    matches.sort(key=lambda x: _literal_prefix_len(x[1].key_format.pattern), reverse=True)
+    return matches[0][1]()
+
+
 def discover_providers() -> None:
     """Import all provider modules in this package to trigger __init_subclass__ registration."""
     package_dir = Path(__file__).parent

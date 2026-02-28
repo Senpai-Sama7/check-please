@@ -92,6 +92,7 @@ class DashboardScreen(Screen):
                 yield StatCard("PROVIDERS", card_id="stat-providers")
                 yield StatCard("VALID KEYS", card_id="stat-valid", classes="card-green")
                 yield StatCard("DEAD KEYS", card_id="stat-dead", classes="card-red")
+                yield StatCard("CACHE HIT%", card_id="stat-cache")
                 yield StatCard("LAST AUDIT", card_id="stat-last")
             yield Rule()
             yield Label("  Audit Results", classes="section-title")
@@ -140,7 +141,8 @@ class DashboardScreen(Screen):
         last = "never"
         if REPORT_PATH.exists():
             try:
-                data = json.loads(REPORT_PATH.read_text())
+                raw = json.loads(REPORT_PATH.read_text())
+                data = raw.get("results", raw) if isinstance(raw, dict) else raw
                 for r in data:
                     if r.get("status") == "valid":
                         valid += 1
@@ -155,13 +157,23 @@ class DashboardScreen(Screen):
         self.query_one("#stat-dead", StatCard).update_value(str(dead))
         self.query_one("#stat-last", StatCard).update_value(last)
 
+        # Cache stats
+        try:
+            from credential_auditor.orchestrator import get_cache
+            stats = get_cache().stats
+            rate = f"{stats.hit_rate:.0%}" if stats.total else "—"
+            self.query_one("#stat-cache", StatCard).update_value(rate)
+        except Exception:
+            self.query_one("#stat-cache", StatCard).update_value("—")
+
     def _load_results(self) -> None:
         table = self.query_one("#results-table", DataTable)
         table.clear()
         if not REPORT_PATH.exists():
             return
         try:
-            data = json.loads(REPORT_PATH.read_text())
+            raw = json.loads(REPORT_PATH.read_text())
+            data = raw.get("results", raw) if isinstance(raw, dict) else raw
         except Exception:
             return
         for r in data:
@@ -282,11 +294,23 @@ class AuditScreen(Screen):
 
             log.write_line(f"\n✓ {len(results)} keys audited — {valid} valid, {dead} dead")
 
+            # Show new feature stats
+            summary = getattr(results, "summary", None)
+            if summary:
+                if summary.cache_hits:
+                    log.write_line(f"  ⚡ Cache: {summary.cache_hits} hits, {summary.cache_misses} misses")
+                if summary.auto_detected:
+                    log.write_line(f"  🔍 Auto-detected {summary.auto_detected} keys by pattern")
+                if summary.providers_skipped:
+                    log.write_line(f"  ⏭ Bailed on {summary.providers_skipped} failing providers")
+
             # Step 4: Write report
             status_label.update("⏳ Writing report...")
             from credential_auditor.output import write_json
-            await asyncio.to_thread(write_json, results, REPORT_PATH, False, quiet)
+            summary = getattr(results, "summary", None)
+            await asyncio.to_thread(write_json, results, REPORT_PATH, False, quiet, summary)
             log.write_line(f"✓ Report written → {REPORT_PATH.name}")
+            log.write_line(f"✓ Audit log → audit.log")
             progress.progress = 95
 
             # Step 5: Prune dead keys
@@ -391,9 +415,11 @@ class ReportScreen(Screen):
         if not REPORT_PATH.exists():
             return
         try:
-            data = json.loads(REPORT_PATH.read_text())
+            raw = json.loads(REPORT_PATH.read_text())
         except Exception:
             return
+        # Handle both formats: list (old) or {summary, results} (new)
+        data = raw.get("results", raw) if isinstance(raw, dict) else raw
 
         # Provider table
         from collections import Counter
@@ -419,9 +445,9 @@ class ReportScreen(Screen):
             unique = sorted(set(provs))
             st.add_row(s, str(len(provs)), ", ".join(unique))
 
-        # Raw JSON
+        # Raw JSON (show full payload including summary if present)
         jlog = self.query_one("#report-json", Log)
-        jlog.write(json.dumps(data, indent=2))
+        jlog.write(json.dumps(raw, indent=2))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
