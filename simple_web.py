@@ -367,7 +367,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div class="input-group"><label>Confirm Password</label><input type="password" id="setup-pass2" placeholder="Confirm password"></div>
       <div class="lock-err" id="setup-err"></div>
       <button class="btn primary" onclick="createAccount()" style="width:100%">Create Account</button>
-      <div id="lock-switch-login" style="display:none;margin-top:16px;text-align:center"><a href="#" onclick="showLogin();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none">← Back to sign in</a></div>
+      <div style="margin-top:16px;text-align:center"><a href="#" onclick="showLogin();return false" id="lock-switch-login" style="color:var(--text3);font-size:.8125rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Already have an account? <span style="color:var(--glow)">Sign in</span></a></div>
     </div>
     <div id="lock-login" style="display:none">
       <p id="lock-greeting">Sign in to your vault.</p>
@@ -378,7 +378,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div class="lock-err" id="login-err"></div>
       <button class="btn primary" onclick="unlock()" style="width:100%;margin-bottom:8px">Unlock</button>
       <button class="btn" onclick="biometricAuth()" id="bio-login-btn" style="width:100%;display:none">🔒 Unlock with Biometrics</button>
-      <div style="margin-top:16px;display:flex;justify-content:space-between"><a href="#" onclick="showForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Forgot password?</a><a href="#" onclick="showSetup();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">+ New Account</a></div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center"><a href="#" onclick="showForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Forgot password?</a><a href="#" onclick="showSetup();return false" style="color:var(--text3);font-size:.8125rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Create new account <span style="color:var(--glow)">→</span></a></div>
     </div>
     <!-- Forgot password -->
     <div id="lock-forgot" style="display:none">
@@ -935,14 +935,14 @@ async function checkAccount(){
   if(d.users&&d.users.length){
     E('lock-setup').style.display='none';E('lock-login').style.display='block';
     const sel=E('login-user');sel.innerHTML='';
-    if(d.users.length>1){E('account-picker').style.display='block';d.users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});}
-    else{E('account-picker').style.display='none';sel.innerHTML='<option>'+d.users[0]+'</option>';}
-    E('lock-greeting').textContent='Sign in'+(d.users.length===1?' as '+d.users[0]:'')+'.';
+    E('account-picker').style.display='block';
+    d.users.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;sel.appendChild(o);});
+    E('lock-greeting').textContent=d.users.length===1?'Welcome back.':'Choose an account to sign in.';
     if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';
   }else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
-function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style.display='none';E('lock-setup').style.display='block';E('lock-switch-login').style.display='block';}
-function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
+function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style.display='none';E('lock-setup').style.display='block';}
+function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';checkAccount();}
 function onUserPick(){E('login-err').textContent='';}
 async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
 async function unlock(){const pw=E('login-pass').value,user=E('login-user').value;if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
