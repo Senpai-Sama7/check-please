@@ -390,6 +390,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div class="lock-err" id="forgot-err"></div>
       <button class="btn primary" onclick="recoverAccount()" style="width:100%;margin-bottom:8px">Reset Password</button>
       <button class="btn danger" onclick="if(confirm('This will DELETE all vault data and reset your account. This cannot be undone.'))nukeAccount()" style="width:100%;margin-bottom:8px">🗑️ Erase Everything &amp; Start Over</button>
+      <button class="btn" onclick="biometricAuth()" id="bio-forgot-btn" style="width:100%;display:none">🔒 Unlock with Biometrics Instead</button>
       <div style="margin-top:8px"><a href="#" onclick="hideForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none">← Back to login</a></div>
     </div>
   </div>
@@ -935,7 +936,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
 async function checkAccount(){
   const d=await api('/api/account/status');
   if(d.users&&d.users.length){populateLogin(d.users);E('lock-setup').style.display='none';E('lock-login').style.display='block';
-    if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';
+    if(d.has_biometric&&window.PublicKeyCredential){E('bio-login-btn').style.display='block';E('bio-forgot-btn').style.display='block';}
   }else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
 function populateLogin(users){
