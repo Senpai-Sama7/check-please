@@ -188,6 +188,22 @@ check-please --self-test             # 7 invariants
 
 ---
 
+## Screenshots
+
+<!-- Replace these with actual screenshots -->
+
+| Lock Screen | Dashboard | Audit Results |
+|:-----------:|:---------:|:-------------:|
+| ![Lock Screen](docs/screenshots/lock-screen.png) | ![Dashboard](docs/screenshots/dashboard.png) | ![Audit](docs/screenshots/audit.png) |
+
+| Password Vault | Settings | Build .env |
+|:--------------:|:--------:|:----------:|
+| ![Vault](docs/screenshots/vault.png) | ![Settings](docs/screenshots/settings.png) | ![Build](docs/screenshots/build-env.png) |
+
+> Screenshots coming soon. Run `./start.sh --web` to see the live UI.
+
+---
+
 ## User Manual
 
 This section is for everyone — no technical knowledge required.
