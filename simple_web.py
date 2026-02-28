@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import hmac as _hmac
@@ -536,7 +537,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
             <span class="badge accent" id="bio-badge" style="display:none">Active</span>
           </div>
           <p style="color:var(--text2);font-size:.75rem;line-height:1.5;margin-bottom:10px">Use Face ID, Touch ID, fingerprint, or Windows Hello to unlock.</p>
-          <div id="bio-unsupported" style="display:none;color:var(--amber);font-size:.75rem;padding:10px 14px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:8px;margin-bottom:10px">⚠️ Biometrics require a browser (Chrome, Edge, Safari). Open <span style="font-family:var(--font-mono)">http://127.0.0.1:8457</span> in your browser to set up.</div>
+          <div id="bio-unsupported" style="display:none;color:var(--amber);font-size:.75rem;padding:10px 14px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:8px;margin-bottom:10px">⚠️ Biometrics require a browser. Open <a href="http://localhost:8457" style="color:var(--glow);font-family:var(--font-mono);user-select:all" onclick="copyText('http://localhost:8457');return false">http://localhost:8457</a> in Chrome/Edge/Firefox. <span style="color:var(--text3)">(click to copy)</span></div>
           <div class="btn-group">
             <button class="btn success" onclick="registerBiometric()" id="bio-setup-btn">🔒 Set Up Biometrics</button>
             <button class="btn danger sm" onclick="removeBiometric()" id="bio-remove-btn" style="display:none">Remove</button>
@@ -549,7 +550,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="input-group"><label>.env File</label><input type="text" value=".env (auto-detected)" readonly></div>
         <div class="input-group"><label>Vault Storage</label><input type="text" value=".vault.json (chmod 600)" readonly></div>
-        <div class="input-group"><label>Server</label><input type="text" value="127.0.0.1:8457 (localhost only)" readonly></div>
+        <div class="input-group"><label>Server</label><input type="text" value="localhost:8457 (local only)" readonly></div>
         <div class="btn-group">
           <button class="btn danger" onclick="if(confirm('Clear all vault entries?'))clearVault()">🗑️ Clear Vault</button>
           <button class="btn danger" onclick="if(confirm('Stop server?'))location='/stop'">⏹ Stop</button>
@@ -860,7 +861,7 @@ async function loadAccountSettings(){const d=await api('/api/account/status');if
 // ── WebAuthn ──
 function bufToB64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
 function b64ToBuf(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;}
-async function registerBiometric(){if(!window.PublicKeyCredential||!navigator.credentials?.create){E('bio-unsupported').style.display='block';toast('Biometrics not available — open in a browser instead','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:location.hostname},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
+async function registerBiometric(){if(!window.PublicKeyCredential||!navigator.credentials?.create){E('bio-unsupported').style.display='block';toast('Biometrics not available — open in a browser instead','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:'localhost'},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
 async function biometricAuth(){if(!window.PublicKeyCredential){toast('Not supported','error');return;}try{const ch=await api('/api/webauthn/auth-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.get({publicKey:{challenge:b64ToBuf(ch.challenge),allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal']})),userVerification:'required',timeout:60000}});const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(!d.ok){toast('Verification failed','error');return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
 async function removeBiometric(){if(!confirm('Remove biometric unlock?'))return;await api('/api/webauthn/remove',{method:'POST'});toast('Removed','success');loadAccountSettings();}
 
@@ -996,18 +997,17 @@ class Handler(BaseHTTPRequestHandler):
             if not acct:
                 self._json({"error": "No account"}, 400)
                 return
-            challenge = secrets.token_urlsafe(32)
+            challenge = base64.b64encode(secrets.token_bytes(32)).decode()
             acct["_webauthn_challenge"] = challenge
             _save_account(acct)
-            import base64
-            user_id = base64.urlsafe_b64encode(hashlib.sha256(acct.get("name", "user").encode()).digest()[:16]).decode().rstrip("=")
+            user_id = base64.b64encode(hashlib.sha256(acct.get("name", "user").encode()).digest()[:16]).decode()
             self._json({"challenge": challenge, "user_id": user_id, "user_name": acct.get("name", "user")})
         elif path == "/api/webauthn/auth-challenge":
             acct = _load_account()
             if not acct or not acct.get("webauthn_credentials"):
                 self._json({"error": "No biometric registered"}, 400)
                 return
-            challenge = secrets.token_urlsafe(32)
+            challenge = base64.b64encode(secrets.token_bytes(32)).decode()
             acct["_webauthn_challenge"] = challenge
             _save_account(acct)
             cred_ids = [c["id"] for c in acct["webauthn_credentials"]]
@@ -1332,8 +1332,8 @@ class Handler(BaseHTTPRequestHandler):
 # ── Server entry point ────────────────────────────────────────────────────
 
 def run(port: int = PORT) -> int:
-    server = HTTPServer(("127.0.0.1", port), Handler)
-    url = f"http://127.0.0.1:{port}"
+    server = HTTPServer(("localhost", port), Handler)
+    url = f"http://localhost:{port}"
     print(f"\n  🌐 Check Please — Web Interface")
     print(f"  ────────────────────────────────")
     print(f"  Open in your browser: {url}")

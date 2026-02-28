@@ -20,12 +20,12 @@ def main() -> int:
     from http.server import HTTPServer
 
     # Start web server in background thread
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
+    server = HTTPServer(("localhost", PORT), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
     # Wait for server
-    url = f"http://127.0.0.1:{PORT}"
+    url = f"http://localhost:{PORT}"
     for _ in range(50):
         try:
             import urllib.request
