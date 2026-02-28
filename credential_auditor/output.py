@@ -28,7 +28,7 @@ _STATUS_COLORS = {
 }
 
 
-def render_table(results: list[KeyResult], console: Optional[Console] = None) -> None:
+def render_table(results: list[KeyResult], console: Optional[Console] = None, redaction_level: str = "partial") -> None:
     """Print a Rich table summary to the console."""
     console = console or Console()
     table = Table(title="Credential Audit Results", show_lines=True)
@@ -39,7 +39,10 @@ def render_table(results: list[KeyResult], console: Optional[Console] = None) ->
     table.add_column("Account / Error")
 
     for r in results:
-        fp = f"{r.key_fingerprint.prefix}...{r.key_fingerprint.suffix} ({r.key_fingerprint.length})"
+        fpd = r.key_fingerprint.to_dict(redaction_level)
+        raw_fp = fpd.get("redacted") or f"{fpd['prefix']}...{fpd['suffix']} ({fpd['length']})"
+        from rich.text import Text
+        fp = Text(raw_fp)
         color = _STATUS_COLORS.get(r.status, "white")
         detail = r.account_info or r.error_detail or ""
         table.add_row(r.provider, r.env_var, fp, f"[{color}]{r.status}[/{color}]", detail)
@@ -53,6 +56,7 @@ def write_json(
     force_insecure: bool = False,
     console: Optional[Console] = None,
     summary: Optional[AuditSummary] = None,
+    redaction_level: str = "partial",
 ) -> bool:
     """Write canonical JSON output. Returns True on success."""
     console = console or Console(stderr=True)
@@ -62,7 +66,7 @@ def write_json(
             f"Use --force-insecure-output to override.[/red]"
         )
         return False
-    payload: dict | list = [r.to_dict() for r in results]
+    payload: dict | list = [r.to_dict(redaction_level) for r in results]
     if summary:
         payload = {"summary": summary.to_dict(), "results": payload}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")

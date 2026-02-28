@@ -43,7 +43,13 @@ class KeyFingerprint:
             length=len(key),
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self, redaction_level: str = "partial") -> dict:
+        if redaction_level == "full":
+            return {"redacted": "[REDACTED]", "length": self.length}
+        if redaction_level == "hash":
+            import hashlib
+            h = hashlib.sha256(f"{self.prefix}{self.suffix}".encode()).hexdigest()[:12]
+            return {"redacted": f"[sha256:{h}]", "length": self.length}
         return {"prefix": self.prefix, "suffix": self.suffix, "length": self.length}
 
 
@@ -73,12 +79,12 @@ class KeyResult:
     error_detail: Optional[str] = None
     auto_detected: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self, redaction_level: str = "partial") -> dict:
         """Canonical field ordering per spec — INV-5."""
         return {
             "provider": self.provider,
             "env_var": self.env_var,
-            "key_fingerprint": self.key_fingerprint.to_dict(),
+            "key_fingerprint": self.key_fingerprint.to_dict(redaction_level),
             "status": self.status,
             "account_info": self.account_info,
             "scopes": self.scopes,

@@ -143,9 +143,11 @@ def main() -> int:
             console.print("[yellow]No matching credentials found.[/yellow]")
         return 0
 
+    rl = args.redaction_level
+
     # Table output
     if not args.quiet and not args.json:
-        render_table(results, console)
+        render_table(results, console, redaction_level=rl)
 
     # Summary stats after table
     summary = getattr(results, "summary", None)
@@ -167,14 +169,14 @@ def main() -> int:
     # JSON to stdout
     if args.json:
         import json
-        payload = [r.to_dict() for r in results]
+        payload = [r.to_dict(rl) for r in results]
         if summary:
             payload = {"summary": summary.to_dict(), "results": payload}
         print(json.dumps(payload, indent=2, ensure_ascii=False))
 
     # JSON to file
     if args.output:
-        if not write_json(results, args.output, force_insecure=args.force_insecure_output, console=console, summary=summary):
+        if not write_json(results, args.output, force_insecure=args.force_insecure_output, console=console, summary=summary, redaction_level=rl):
             return 2
 
     has_issues = any(r.status != "valid" for r in results)
