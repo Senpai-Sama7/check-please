@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class HuggingFaceProvider(Provider):
@@ -27,7 +27,7 @@ class HuggingFaceProvider(Provider):
             headers={"Authorization": f"Bearer {key}"},
         )
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             username = data.get("name", "unknown")
             orgs = [o.get("name", "") for o in data.get("orgs", [])]
             acct = f"{username}" + (f" (orgs: {', '.join(orgs)})" if orgs else "")

@@ -83,6 +83,10 @@ def main() -> int:
         console.print(f"[red]File not found: {args.env}[/red]")
         return 2
 
+    if args.timeout <= 0:
+        console.print("[red]--timeout must be > 0[/red]")
+        return 2
+
     # Dry run — show matched credentials without API calls
     if args.dry_run:
         from dotenv import dotenv_values
@@ -121,14 +125,20 @@ def main() -> int:
     from credential_auditor.orchestrator import audit
     from credential_auditor.output import render_table, write_json
 
-    results = asyncio.run(audit(
-        env_path=args.env,
-        providers=args.providers,
-        timeout=args.timeout,
-        console=Console(stderr=True, quiet=True) if args.quiet else Console(stderr=True),
-    ))
+    try:
+        results = asyncio.run(audit(
+            env_path=args.env,
+            providers=args.providers,
+            timeout=args.timeout,
+            console=Console(stderr=True, quiet=True) if args.quiet else Console(stderr=True),
+        ))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Audit interrupted.[/yellow]")
+        return 130
 
     if not results:
+        if getattr(results, '_config_error', False):
+            return 2
         if not args.quiet:
             console.print("[yellow]No matching credentials found.[/yellow]")
         return 0

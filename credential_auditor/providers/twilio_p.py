@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class TwilioProvider(Provider):
@@ -25,12 +25,15 @@ class TwilioProvider(Provider):
         sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
         if not sid:
             return "network_error", None, None, None, None, "TWILIO_ACCOUNT_SID not set"
+        # SEC: Validate SID format to prevent SSRF via path traversal
+        if not re.match(r"^AC[a-f0-9]{32}$", sid):
+            return "network_error", None, None, None, None, "Invalid TWILIO_ACCOUNT_SID format"
         resp = await client.get(
             f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json",
             auth=(sid, key),
         )
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             name = data.get("friendly_name", "unknown")
             status = data.get("status", "unknown")
             if status == "suspended":

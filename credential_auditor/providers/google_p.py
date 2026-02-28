@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class GoogleProvider(Provider):
@@ -27,13 +27,13 @@ class GoogleProvider(Provider):
             params={"key": key},
         )
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             model_count = len(data.get("models", []))
             return "valid", f"{model_count} models accessible", None, None, None, None
         if resp.status_code == 400:
             return "auth_failed", None, None, None, None, "Invalid API key"
         if resp.status_code == 403:
-            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            body = _safe_json(resp) if resp.headers.get("content-type", "").startswith("application/json") else {}
             msg = body.get("error", {}).get("message", "Forbidden")
             if "disabled" in msg.lower() or "not enabled" in msg.lower():
                 return "suspended_account", None, None, None, None, msg

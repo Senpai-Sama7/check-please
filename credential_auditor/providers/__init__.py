@@ -101,6 +101,16 @@ class Provider(ABC):
         )
 
 
+def _safe_json(resp: httpx.Response) -> dict:
+    """Parse JSON response body, returning empty dict on failure."""
+    try:
+        if resp.headers.get("content-type", "").startswith("application/json"):
+            return resp.json()
+    except (ValueError, KeyError):
+        pass
+    return {}
+
+
 def _extract_rate_limit(response: httpx.Response, prefix: str = "x-ratelimit") -> Optional[RateLimitInfo]:
     """Common rate-limit header extraction used by multiple providers."""
     try:

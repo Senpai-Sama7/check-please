@@ -37,10 +37,11 @@ class CacheStats:
 
 
 class ValidationCache:
-    """In-memory TTL cache for KeyResult objects."""
+    """In-memory TTL cache for KeyResult objects with size limit."""
 
-    def __init__(self, ttl_seconds: int = 3600):
+    def __init__(self, ttl_seconds: int = 3600, max_size: int = 10_000):
         self.ttl = ttl_seconds
+        self.max_size = max_size
         self._store: dict[str, tuple[KeyResult, float]] = {}
         self.stats = CacheStats()
 
@@ -56,6 +57,10 @@ class ValidationCache:
         return None
 
     def put(self, provider: str, key: str, result: KeyResult) -> None:
+        if len(self._store) >= self.max_size:
+            # Evict oldest entry
+            oldest = min(self._store, key=lambda k: self._store[k][1])
+            del self._store[oldest]
         self._store[_cache_key(provider, key)] = (result, time.monotonic())
 
     def clear(self) -> None:

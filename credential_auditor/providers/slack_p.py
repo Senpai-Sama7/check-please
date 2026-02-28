@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class SlackProvider(Provider):
@@ -29,7 +29,7 @@ class SlackProvider(Provider):
             return "quota_exhausted", None, None, None, None, f"Rate limited, retry after {retry}s"
         if resp.status_code != 200:
             return "network_error", None, None, None, None, f"HTTP {resp.status_code}"
-        data = resp.json()
+        data = _safe_json(resp)
         if not data.get("ok"):
             err = data.get("error", "unknown_error")
             if err in ("invalid_auth", "not_authed", "token_revoked"):

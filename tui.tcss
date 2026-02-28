@@ -67,7 +67,7 @@ Footer {
 }
 
 .stat-label {
-    color: #565f89;
+    color: #9aa5ce;
     text-align: center;
     width: 100%;
 }
@@ -136,12 +136,12 @@ ProgressBar Bar {
 }
 
 ProgressBar PercentageStatus {
-    color: #565f89;
+    color: #9aa5ce;
 }
 
 /* ── Log ─────────────────────────────────────────────────────────────────── */
 
-Log {
+Log, RichLog {
     margin: 1 2;
     height: auto;
     min-height: 8;

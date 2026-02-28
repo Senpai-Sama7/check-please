@@ -9,7 +9,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class AnthropicProvider(Provider):
@@ -27,7 +27,7 @@ class AnthropicProvider(Provider):
         )
         rl = self._parse_rate_limit(resp)
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             model_count = len(data.get("data", []))
             return "valid", f"{model_count} models accessible", None, rl, None, None
         if resp.status_code == 401:

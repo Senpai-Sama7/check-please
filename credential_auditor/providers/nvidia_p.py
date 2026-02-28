@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class NvidiaProvider(Provider):
@@ -25,7 +25,7 @@ class NvidiaProvider(Provider):
             headers={"Authorization": f"Bearer {key}"},
         )
         if resp.status_code == 200:
-            count = len(resp.json().get("functions", []))
+            count = len(_safe_json(resp).get("functions", []))
             return "valid", f"{count} functions accessible", None, None, None, None
         if resp.status_code in (401, 403):
             return "auth_failed", None, None, None, None, "Invalid API key"

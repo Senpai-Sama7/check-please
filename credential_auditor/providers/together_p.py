@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class TogetherProvider(Provider):
@@ -25,7 +25,7 @@ class TogetherProvider(Provider):
             headers={"Authorization": f"Bearer {key}"},
         )
         if resp.status_code == 200:
-            count = len(resp.json())  # Together returns a list, not {data:[]}
+            count = len(_safe_json(resp))  # Together returns a list, not {data:[]}
             return "valid", f"{count} models accessible", None, None, None, None
         if resp.status_code == 401:
             return "auth_failed", None, None, None, None, "Invalid API key"

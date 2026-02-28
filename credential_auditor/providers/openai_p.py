@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider, _extract_rate_limit
+from credential_auditor.providers import Provider, _extract_rate_limit, _safe_json
 
 
 class OpenAIProvider(Provider):
@@ -26,7 +26,7 @@ class OpenAIProvider(Provider):
         )
         rl = _extract_rate_limit(resp)
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             model_count = len(data.get("data", []))
             return "valid", f"{model_count} models accessible", None, rl, None, None
         if resp.status_code == 401:
@@ -34,7 +34,7 @@ class OpenAIProvider(Provider):
         if resp.status_code == 429:
             return "quota_exhausted", None, None, rl, None, "Rate limit or quota exceeded"
         if resp.status_code == 403:
-            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            body = _safe_json(resp)
             code = body.get("error", {}).get("code", "")
             if "account" in code or "deactivated" in code:
                 return "suspended_account", None, None, rl, None, code

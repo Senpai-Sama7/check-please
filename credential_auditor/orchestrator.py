@@ -42,10 +42,14 @@ _cache = ValidationCache(ttl_seconds=3600)
 # Failed-provider tracking: bail after this many consecutive failures
 _FAIL_BAIL_THRESHOLD = 3
 
+# Limit concurrent outbound requests to avoid triggering provider rate limits
+_CONCURRENCY_LIMIT = 10
+
 
 class AuditResults(list):
     """list subclass that carries an AuditSummary attribute."""
     summary: AuditSummary = None  # type: ignore[assignment]
+    _config_error: bool = False
 
 
 async def audit(
@@ -71,6 +75,7 @@ async def audit(
                 console.print(f"[red]Unknown provider: {p}. Available: {list(registry)}[/red]")
                 r = AuditResults()
                 r.summary = AuditSummary(0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                r._config_error = True
                 return r
         active = {name: registry[name]() for name in providers}
     else:
@@ -133,8 +138,14 @@ async def audit(
     fail_counts: dict[str, int] = {}
     skipped_providers: set[str] = set()
 
+    sem = asyncio.Semaphore(_CONCURRENCY_LIMIT)
+
+    async def _throttled_check(inst: Provider, var: str, key: str, client: httpx.AsyncClient) -> KeyResult:
+        async with sem:
+            return await inst.check_key(var, key, client)
+
     async with httpx.AsyncClient(timeout=timeout) as client:
-        coros = [inst.check_key(var, key, client) for var, key, inst in uncached_tasks]
+        coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
         raw = await asyncio.gather(*coros, return_exceptions=True)
 
     results: list[KeyResult] = list(cached_results)

@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class SendGridProvider(Provider):
@@ -25,7 +25,7 @@ class SendGridProvider(Provider):
             headers={"Authorization": f"Bearer {key}"},
         )
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             scopes = data.get("scopes", [])
             return "valid", None, scopes or None, None, None, None
         if resp.status_code == 401:

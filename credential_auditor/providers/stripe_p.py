@@ -8,7 +8,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider
+from credential_auditor.providers import Provider, _safe_json
 
 
 class StripeProvider(Provider):
@@ -24,7 +24,7 @@ class StripeProvider(Provider):
     ]:
         resp = await client.get("https://api.stripe.com/v1/account", auth=(key, ""))
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             acct_id = data.get("id", "unknown")
             charges = "enabled" if data.get("charges_enabled") else "disabled"
             return "valid", f"{acct_id} (charges: {charges})", None, None, None, None
@@ -33,7 +33,7 @@ class StripeProvider(Provider):
         if resp.status_code == 429:
             return "quota_exhausted", None, None, None, None, "Rate limited"
         if resp.status_code == 403:
-            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            body = _safe_json(resp) if resp.headers.get("content-type", "").startswith("application/json") else {}
             err = body.get("error", {})
             if err.get("code") == "account_invalid":
                 return "suspended_account", None, None, None, None, "Account suspended"

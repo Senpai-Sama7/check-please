@@ -13,7 +13,9 @@ from typing import Optional
 
 
 class AuditLog:
-    """Append-only structured audit log."""
+    """Append-only structured audit log with size rotation."""
+
+    MAX_SIZE = 10 * 1024 * 1024  # 10 MB
 
     def __init__(self, path: Path):
         self.path = path
@@ -45,10 +47,16 @@ class AuditLog:
         self._entries.append(entry)
 
     def flush(self) -> None:
-        """Append buffered entries to log file."""
+        """Append buffered entries to log file, rotating if oversized."""
         if not self._entries:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Rotate if log exceeds max size
+        if self.path.exists() and self.path.stat().st_size > self.MAX_SIZE:
+            rotated = self.path.with_suffix(".log.1")
+            if rotated.exists():
+                rotated.unlink()
+            self.path.rename(rotated)
         with self.path.open("a") as f:
             for entry in self._entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")

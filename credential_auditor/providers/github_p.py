@@ -15,7 +15,7 @@ from typing import ClassVar, Optional
 import httpx
 
 from credential_auditor.models import RateLimitInfo, Status
-from credential_auditor.providers import Provider, _extract_rate_limit
+from credential_auditor.providers import Provider, _extract_rate_limit, _safe_json
 
 
 class GitHubProvider(Provider):
@@ -38,7 +38,7 @@ class GitHubProvider(Provider):
         )
         rl = _extract_rate_limit(resp)
         if resp.status_code == 200:
-            data = resp.json()
+            data = _safe_json(resp)
             login = data.get("login", "unknown")
             scopes = [s.strip() for s in resp.headers.get("x-oauth-scopes", "").split(",") if s.strip()]
             return "valid", f"user:{login}", scopes or None, rl, None, None
