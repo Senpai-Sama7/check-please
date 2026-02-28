@@ -470,6 +470,19 @@ tr:hover td{background:rgba(129,140,248,.04)}
         <div class="stat"><div class="val" id="s-providers">0</div><div class="lbl">Providers</div></div>
       </div>
     </div>
+    <div id="audit-toolbar" style="display:none;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <select id="audit-sort" onchange="renderAuditResults()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:6px 12px;font-size:.75rem;font-family:var(--font)">
+          <option value="default">Sort: Default</option><option value="status">Sort: Status</option><option value="provider">Sort: Provider</option>
+        </select>
+        <select id="audit-filter" onchange="renderAuditResults()" style="background:var(--glass);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;padding:6px 12px;font-size:.75rem;font-family:var(--font)">
+          <option value="all">Show: All</option><option value="valid">✓ Valid Only</option><option value="failed">✗ Failed Only</option><option value="other">⚠ Warnings</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:var(--text2);cursor:pointer;margin-left:auto"><input type="checkbox" id="audit-check-all" onchange="toggleAllAudit(this.checked)"> Select All</label>
+        <button class="btn primary sm" onclick="openBuildEnv()" id="btn-build-env" style="display:none">📦 Build .env</button>
+        <button class="btn danger sm" onclick="deleteSelected()" id="btn-del-selected" style="display:none">🗑️ Remove Selected</button>
+      </div>
+    </div>
     <div id="audit-results"></div>
   </div>
   <div class="panel" id="audit-output-card" style="display:none">
@@ -601,6 +614,22 @@ tr:hover td{background:rgba(129,140,248,.04)}
   </div>
 </div>
 
+<!-- Build .env Modal -->
+<div class="modal-overlay" id="modal-build-env" onclick="if(event.target===this)closeModals()">
+  <div class="modal" style="max-width:600px">
+    <h2>Build Custom .env</h2>
+    <p style="color:var(--text2);font-size:.8125rem;margin-bottom:16px">Select credentials to include. They'll be organized by provider with clean formatting.</p>
+    <div id="build-env-list" style="max-height:340px;overflow-y:auto;margin-bottom:16px"></div>
+    <div style="background:var(--void);border:1px solid var(--glass-border);border-radius:12px;padding:14px;font-family:var(--font-mono);font-size:.7rem;max-height:180px;overflow-y:auto;white-space:pre;color:var(--text2);margin-bottom:16px;display:none" id="build-env-preview"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="previewBuildEnv()">👁️ Preview</button>
+      <button class="btn" onclick="closeModals()">Cancel</button>
+      <button class="btn primary" onclick="downloadBuildEnv()">⬇️ Download .env</button>
+      <button class="btn success" onclick="saveBuildEnv()">💾 Save as .env</button>
+    </div>
+  </div>
+</div>
+
 <!-- Scan Results Modal -->
 <div class="modal-overlay" id="modal-scan" onclick="if(event.target===this)closeModals()">
   <div class="modal">
@@ -644,20 +673,88 @@ async function api(path,opts={}){try{const r=await fetch(path,opts);const ct=r.h
 function setLoading(id,on,msg){const l=E(id);if(l){l.classList.toggle('on',on);if(msg){const m=l.querySelector('.msg');if(m)m.textContent=msg;}}}
 
 // ── Audit ──
+let auditData=[];
+const FAIL_STATUSES=['auth_failed','suspended_account'];
+const WARN_STATUSES=['network_error','quota_exhausted','insufficient_scope','invalid_format'];
+function renderAuditResults(){
+  const sort=E('audit-sort').value,filter=E('audit-filter').value;
+  let items=[...auditData];
+  if(filter==='valid')items=items.filter(k=>k.status==='valid');
+  else if(filter==='failed')items=items.filter(k=>FAIL_STATUSES.includes(k.status));
+  else if(filter==='other')items=items.filter(k=>WARN_STATUSES.includes(k.status));
+  if(sort==='status')items.sort((a,b)=>(a.status==='valid'?0:1)-(b.status==='valid'?0:1)||a.provider.localeCompare(b.provider));
+  else if(sort==='provider')items.sort((a,b)=>a.provider.localeCompare(b.provider));
+  let h='';for(const k of items){const si=SI[k.status]||{i:'?',l:k.status};const fp=k.key_fingerprint||{};const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
+    h+='<div class="kc v-'+k.status+'"><label style="display:flex;align-items:center;flex-shrink:0;cursor:pointer"><input type="checkbox" class="audit-cb" data-var="'+k.env_var+'" onchange="updateAuditActions()"></label><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div><span class="ks t-'+k.status+'">'+si.l+'</span></div>';}
+  E('audit-results').innerHTML=h||'<div class="empty"><div class="icon">✅</div><h3>No keys found</h3><p>Upload a .env file from the Dashboard.</p></div>';
+}
+function getCheckedVars(){return[...document.querySelectorAll('.audit-cb:checked')].map(c=>c.dataset.var);}
+function updateAuditActions(){const n=getCheckedVars().length;E('btn-build-env').style.display=n?'inline-flex':'none';E('btn-del-selected').style.display=n?'inline-flex':'none';}
+function toggleAllAudit(on){document.querySelectorAll('.audit-cb').forEach(c=>c.checked=on);updateAuditActions();}
+async function deleteSelected(){const vars=getCheckedVars();if(!vars.length)return;if(!confirm('Remove '+vars.length+' credential(s) from your .env file?'))return;const d=await api('/api/env/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vars})});if(d.error){toast(d.error,'error');return;}toast('Removed '+d.removed+' credential(s)','success');runAudit();}
 async function runAudit(){
   go('audit');setLoading('audit-loader',true,'Validating credentials against live APIs…');
-  E('audit-stats').style.display='none';E('audit-results').innerHTML='';E('audit-output-card').style.display='none';
+  E('audit-stats').style.display='none';E('audit-results').innerHTML='';E('audit-output-card').style.display='none';E('audit-toolbar').style.display='none';
   document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
   const d=await api('/api/audit');
   document.querySelectorAll('.btn').forEach(b=>b.disabled=false);setLoading('audit-loader',false);
   if(d.error){E('audit-results').innerHTML='<div class="empty"><div class="icon">⚠️</div><h3>Error</h3><p>'+d.error+'</p></div>';return;}
-  const s=d.summary||{};E('audit-stats').style.display='block';
+  const s=d.summary||{};E('audit-stats').style.display='block';E('audit-toolbar').style.display='block';
   E('s-total').textContent=s.total_keys||d.results?.length||0;E('s-valid').textContent=s.valid||0;E('s-failed').textContent=s.failed||0;E('s-providers').textContent=s.providers_checked||0;
   E('d-total').textContent=s.total_keys||d.results?.length||0;E('d-valid').textContent=s.valid||0;E('d-failed').textContent=s.failed||0;
-  let h='';if(d.results)for(const k of d.results){const si=SI[k.status]||{i:'?',l:k.status};const fp=k.key_fingerprint||{};const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
-    h+='<div class="kc v-'+k.status+'"><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div><span class="ks t-'+k.status+'">'+si.l+'</span></div>';}
-  E('audit-results').innerHTML=h||'<div class="empty"><div class="icon">✅</div><h3>No keys found</h3><p>Upload a .env file from the Dashboard.</p></div>';
-  E('dash-results').innerHTML=h||E('dash-results').innerHTML;
+  auditData=d.results||[];E('audit-sort').value='default';E('audit-filter').value='all';E('audit-check-all').checked=false;updateAuditActions();
+  renderAuditResults();
+  // mirror to dashboard
+  let dh='';for(const k of auditData){const si=SI[k.status]||{i:'?',l:k.status};const fp=k.key_fingerprint||{};const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
+    dh+='<div class="kc v-'+k.status+'"><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div><span class="ks t-'+k.status+'">'+si.l+'</span></div>';}
+  E('dash-results').innerHTML=dh||E('dash-results').innerHTML;
+}
+// ── Build .env ──
+async function openBuildEnv(){
+  const vars=getCheckedVars();if(!vars.length){toast('Select credentials first','info');return;}
+  const d=await api('/api/env/read');if(d.error){toast(d.error,'error');return;}
+  const envMap=d.vars||{};
+  // group by provider from auditData
+  const groups={};for(const k of auditData){if(!vars.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k);}
+  let h='';for(const p of Object.keys(groups).sort()){
+    h+='<div style="margin-bottom:12px"><div style="font-weight:700;font-size:.8125rem;color:var(--glow);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">'+p+'</div>';
+    for(const k of groups[p]){const si=SI[k.status]||{i:'?',l:k.status};
+      h+='<label style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--glass-border);font-size:.8125rem;cursor:pointer"><input type="checkbox" checked class="build-cb" data-var="'+k.env_var+'"><span style="font-weight:600;flex:1">'+k.env_var+'</span><span class="ks t-'+k.status+'" style="font-size:.6rem">'+si.l+'</span></label>';}
+    h+='</div>';}
+  E('build-env-list').innerHTML=h;E('build-env-preview').style.display='none';
+  E('modal-build-env').classList.add('open');
+}
+function buildEnvText(){
+  const checked=[...document.querySelectorAll('.build-cb:checked')].map(c=>c.dataset.var);
+  const groups={};for(const k of auditData){if(!checked.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k);}
+  let out='# Generated by Check Please\\n# '+new Date().toISOString().slice(0,10)+'\\n';
+  for(const p of Object.keys(groups).sort()){out+='\\n# ── '+p.toUpperCase()+' ──\\n';for(const k of groups[p])out+=k.env_var+'=${'+k.env_var+'}\\n';}
+  return out;
+}
+async function previewBuildEnv(){
+  const checked=[...document.querySelectorAll('.build-cb:checked')].map(c=>c.dataset.var);
+  const d=await api('/api/env/read');const envMap=d.vars||{};
+  const groups={};for(const k of auditData){if(!checked.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k);}
+  let out='# Generated by Check Please\\n# '+new Date().toISOString().slice(0,10)+'\\n';
+  for(const p of Object.keys(groups).sort()){out+='\\n# ── '+p.toUpperCase()+' ──\\n';for(const k of groups[p]){const v=envMap[k.env_var]||'';const masked=v?v.substring(0,6)+'…':'<not found>';out+=k.env_var+'='+masked+'\\n';}}
+  E('build-env-preview').textContent=out;E('build-env-preview').style.display='block';
+}
+async function saveBuildEnv(){
+  const checked=new Set([...document.querySelectorAll('.build-cb:checked')].map(c=>c.dataset.var));
+  if(!checked.size){toast('Select at least one credential','info');return;}
+  const groups={};for(const k of auditData){if(!checked.has(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k.env_var);}
+  const d=await api('/api/env/build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vars:[...checked],groups})});
+  if(d.error){toast(d.error,'error');return;}
+  toast('Saved .env with '+d.count+' credentials','success');closeModals();
+}
+function downloadBuildEnv(){
+  const checked=[...document.querySelectorAll('.build-cb:checked')].map(c=>c.dataset.var);
+  if(!checked.length){toast('Select at least one credential','info');return;}
+  // Build with placeholders for download
+  const groups={};for(const k of auditData){if(!checked.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k);}
+  let out='# Generated by Check Please\\n# '+new Date().toISOString().slice(0,10)+'\\n';
+  for(const p of Object.keys(groups).sort()){out+='\\n# ── '+p.toUpperCase()+' ──\\n';for(const k of groups[p])out+=k.env_var+'=YOUR_'+k.env_var+'_HERE\\n';}
+  const blob=new Blob([out],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='.env';a.click();URL.revokeObjectURL(a.href);toast('Downloaded .env template','success');
 }
 async function runPreview(){go('audit');setLoading('audit-loader',true,'Loading preview…');E('audit-results').innerHTML='';const d=await api('/api/preview');setLoading('audit-loader',false);E('audit-output-card').style.display='block';E('audit-output').textContent=d.output||d.error||'No output';}
 async function runSelfTest(){go('audit');setLoading('audit-loader',true,'Running self-test…');E('audit-results').innerHTML='';const d=await api('/api/self-test');setLoading('audit-loader',false);E('audit-output-card').style.display='block';E('audit-output').textContent=d.output||d.error||'No output';}
@@ -856,6 +953,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "No .env file found"}, 400)
                 return
             self._json(self._run_cmd(["--dry-run", "--env", str(env)]))
+        elif path == "/api/env/read":
+            env_path = DIR / ".env"
+            if not env_path.is_file():
+                self._json({"vars": {}})
+                return
+            vs: dict[str, str] = {}
+            for line in env_path.read_text().splitlines():
+                if line.strip() and not line.strip().startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    vs[k.strip()] = v.strip()
+            self._json({"vars": vs})
         elif path == "/api/env/scan":
             # Scan shell rc files for exported env vars
             found: dict[str, str] = {}
@@ -1113,6 +1221,55 @@ class Handler(BaseHTTPRequestHandler):
             env_path.write_text("\n".join(lines) + "\n")
             os.chmod(env_path, 0o600)
             self._json({"ok": True, "added": added})
+        elif path == "/api/env/remove":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            to_remove = set(data.get("vars", []))
+            env_path = DIR / ".env"
+            if not env_path.is_file():
+                self._json({"error": "No .env file"}, 400)
+                return
+            lines = env_path.read_text().splitlines()
+            kept = [l for l in lines if not (l.strip() and not l.strip().startswith("#") and "=" in l and l.split("=", 1)[0].strip() in to_remove)]
+            env_path.write_text("\n".join(kept) + "\n")
+            os.chmod(env_path, 0o600)
+            self._json({"ok": True, "removed": len(to_remove)})
+        elif path == "/api/env/build":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            wanted = set(data.get("vars", []))
+            groups: dict[str, list[str]] = data.get("groups", {})  # provider->vars
+            env_path = DIR / ".env"
+            existing: dict[str, str] = {}
+            if env_path.is_file():
+                for line in env_path.read_text().splitlines():
+                    if line.strip() and not line.strip().startswith("#") and "=" in line:
+                        k, _, v = line.partition("=")
+                        existing[k.strip()] = v.strip()
+            out = "# Generated by Check Please\n"
+            count = 0
+            written: set[str] = set()
+            if groups:
+                for p in sorted(groups.keys()):
+                    out += f"\n# ── {p.upper()} ──\n"
+                    for k in sorted(groups[p]):
+                        if k in existing and k in wanted:
+                            out += f"{k}={existing[k]}\n"
+                            count += 1
+                            written.add(k)
+            for k in sorted(wanted - written):
+                if k in existing:
+                    out += f"{k}={existing[k]}\n"
+                    count += 1
+            env_path.write_text(out)
+            os.chmod(env_path, 0o600)
+            self._json({"ok": True, "count": count})
         elif path == "/api/vault/clear":
             _save_vault([])
             self._json({"ok": True})
