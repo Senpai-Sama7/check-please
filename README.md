@@ -30,6 +30,7 @@ check-please --dry-run --env .env    # preview without API calls
 ./start.sh --agent-env codex  # Launch agent with credentials injected
 ./start.sh --agent-mcp  # MCP server for Claude Code, Copilot
 ./start.sh --agent-write-env /tmp/agent.env  # Write credentials to file
+./start.sh --desktop    # Install as desktop app (app menu + icon)
 ./start.sh --dry-run    # Preview what would be audited
 ./start.sh --help       # Full usage docs
 ```

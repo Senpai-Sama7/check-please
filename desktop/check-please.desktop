@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Check Please
+Comment=Credential audit pipeline — validate API keys against live endpoints
+Exec=check-please-desktop
+Icon=check-please
+Terminal=false
+Type=Application
+Categories=Utility;Security;Development;
+Keywords=credentials;api;keys;audit;security;
+StartupNotify=true

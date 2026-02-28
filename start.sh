@@ -35,6 +35,7 @@ for arg in "$@"; do
         --agent-export) MODE="agent-export" ;;
         --agent-write-env) MODE="agent-write-env" ;;
         --agent-mcp) MODE="agent-mcp" ;;
+        --desktop) MODE="desktop" ;;
         --dry-run) DRY_RUN=true ;;
         --help|-h) SHOW_HELP=true ;;
         *) EXTRA_ARGS+=("$arg") ;;
@@ -64,6 +65,7 @@ if $SHOW_HELP; then
     printf "  ./start.sh --agent-export Print export statements for eval/source\n"
     printf "  ./start.sh --agent-write-env PATH  Write credentials to a file\n"
     printf "  ./start.sh --agent-mcp   MCP server for Claude Code, Copilot, etc.\n"
+    printf "  ./start.sh --desktop    Install as desktop app (app menu + icon)\n"
     printf "  ./start.sh --dry-run    Preview what would be audited\n"
     printf "  ./start.sh --help       Show this help\n"
     printf "\n${BOLD}For beginners:${NC}\n"
@@ -204,6 +206,9 @@ case "$MODE" in
     agent-mcp)
         python "$DIR/agent_api.py" --mcp
         exit 0
+        ;;
+    desktop)
+        exec bash "$DIR/install-desktop.sh"
         ;;
 esac
 

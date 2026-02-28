@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="20" fill="#1a1a2e"/>
+  <circle cx="64" cy="58" r="30" fill="none" stroke="#e94560" stroke-width="6"/>
+  <path d="M50 58 l10 10 l18-20" fill="none" stroke="#0f3460" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 58 l10 10 l18-20" fill="none" stroke="#e94560" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="64" y="108" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="14" fill="#e94560">check</text>
+</svg>
