@@ -19,42 +19,46 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-TUI_MODE=false
+MODE=""
 DRY_RUN=false
 SHOW_HELP=false
 EXTRA_ARGS=()
 for arg in "$@"; do
     case "$arg" in
-        --tui|-t) TUI_MODE=true ;;
+        --tui|-t) MODE="tui" ;;
+        --easy|-e) MODE="easy" ;;
+        --simple|-s) MODE="simple" ;;
+        --web|-w) MODE="web" ;;
+        --guide) MODE="guide" ;;
         --dry-run) DRY_RUN=true ;;
         --help|-h) SHOW_HELP=true ;;
         *) EXTRA_ARGS+=("$arg") ;;
     esac
 done
 
+# Default to easy mode for new users (no args at all)
+if [[ -z "$MODE" && ${#EXTRA_ARGS[@]} -eq 0 && "$DRY_RUN" == "false" && "$SHOW_HELP" == "false" ]]; then
+    MODE="easy"
+fi
+
 if $SHOW_HELP; then
     printf "${BOLD}check_please${NC} — credential audit pipeline\n\n"
     printf "${BOLD}Usage:${NC}\n"
-    printf "  ./start.sh              Run full CLI pipeline\n"
-    printf "  ./start.sh --tui        Launch terminal UI\n"
-    printf "  ./start.sh --dry-run    Show what would be audited\n"
+    printf "  ./start.sh              Easy mode (guided, recommended)\n"
+    printf "  ./start.sh --easy       Easy mode — step-by-step wizard\n"
+    printf "  ./start.sh --simple     Simple menu — numbered options\n"
+    printf "  ./start.sh --web        Web browser — visual interface\n"
+    printf "  ./start.sh --tui        Terminal UI — rich visual interface\n"
+    printf "  ./start.sh --guide      Quick start — first-time tutorial\n"
+    printf "  ./start.sh --dry-run    Preview what would be audited\n"
     printf "  ./start.sh --help       Show this help\n"
-    printf "\n${BOLD}Pipeline steps:${NC}\n"
-    printf "  1. Find Python 3.10+\n"
-    printf "  2. Create/verify venv\n"
-    printf "  3. Install dependencies\n"
-    printf "  4. Verify .env exists\n"
-    printf "  5. Check .env permissions\n"
-    printf "  6. Organize .env → .env.organized\n"
-    printf "  7. Run auditor self-test\n"
-    printf "  8. Audit credentials against live APIs\n"
-    printf "  9. Prune dead keys from .env.organized\n"
-    printf "\n${BOLD}CLI flags (passed through):${NC}\n"
-    printf "  --json          Print JSON to stdout\n"
-    printf "  --quiet         Suppress table output\n"
-    printf "  --list-providers  List available providers\n"
-    printf "  --version       Show version\n"
-    printf "  --dry-run       Show matched credentials without API calls\n"
+    printf "\n${BOLD}For beginners:${NC}\n"
+    printf "  Just run ${CYAN}./start.sh${NC} — it will guide you through everything.\n"
+    printf "\n${BOLD}Full pipeline (advanced):${NC}\n"
+    printf "  Pass extra flags to run the full CLI pipeline:\n"
+    printf "  ./start.sh --json       Print JSON to stdout\n"
+    printf "  ./start.sh --quiet      Suppress table output\n"
+    printf "  ./start.sh --env FILE   Use a specific .env file\n"
     exit 0
 fi
 
@@ -126,12 +130,34 @@ fi
 line_count=$(wc -l < "$ENV_FILE")
 ok ".env found ($line_count lines)"
 
-# ── TUI mode: launch Textual app and exit ─────────────────────
-if $TUI_MODE; then
-    ok "Launching TUI..."
-    python "$DIR/tui.py"
-    exit 0
-fi
+# ── Mode dispatch: easy/simple/web/tui/guide ──────────────────
+case "$MODE" in
+    easy)
+        ok "Launching Easy Mode..."
+        python "$DIR/easy_mode.py"
+        exit 0
+        ;;
+    simple)
+        ok "Launching Simple Menu..."
+        python "$DIR/simple_cli.py"
+        exit 0
+        ;;
+    web)
+        ok "Launching Web Interface..."
+        python "$DIR/simple_web.py"
+        exit 0
+        ;;
+    tui)
+        ok "Launching TUI..."
+        python "$DIR/tui.py"
+        exit 0
+        ;;
+    guide)
+        ok "Launching Quick Start Guide..."
+        python "$DIR/quick_start_guide.py"
+        exit 0
+        ;;
+esac
 
 # ── Dry run: show what would be audited ───────────────────────
 if $DRY_RUN; then
