@@ -33,6 +33,7 @@ for arg in "$@"; do
         --agent-api|-a) MODE="agent-api" ;;
         --agent-env) MODE="agent-env" ;;
         --agent-export) MODE="agent-export" ;;
+        --agent-write-env) MODE="agent-write-env" ;;
         --agent-mcp) MODE="agent-mcp" ;;
         --dry-run) DRY_RUN=true ;;
         --help|-h) SHOW_HELP=true ;;
@@ -61,6 +62,7 @@ if $SHOW_HELP; then
     printf "  ./start.sh --agent-api   Credential broker for AI agents\n"
     printf "  ./start.sh --agent-env   Launch agent with credentials as env vars\n"
     printf "  ./start.sh --agent-export Print export statements for eval/source\n"
+    printf "  ./start.sh --agent-write-env PATH  Write credentials to a file\n"
     printf "  ./start.sh --agent-mcp   MCP server for Claude Code, Copilot, etc.\n"
     printf "  ./start.sh --dry-run    Preview what would be audited\n"
     printf "  ./start.sh --help       Show this help\n"
@@ -190,6 +192,14 @@ case "$MODE" in
     agent-export)
         python "$DIR/agent_api.py" --export
         exit 0
+        ;;
+    agent-write-env)
+        if [ ${#EXTRA_ARGS[@]} -eq 0 ]; then
+            printf "${RED}✗ Usage: ./start.sh --agent-write-env PATH${NC}\n"
+            exit 2
+        fi
+        python "$DIR/agent_api.py" --write-env "${EXTRA_ARGS[0]}"
+        exit $?
         ;;
     agent-mcp)
         python "$DIR/agent_api.py" --mcp

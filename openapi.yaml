@@ -1,0 +1,100 @@
+openapi: "3.1.0"
+info:
+  title: check_please Agent API
+  version: "1.0"
+  description: Localhost credential broker for AI agents. All endpoints require Bearer token auth.
+  license:
+    name: MIT
+
+servers:
+  - url: http://127.0.0.1:8458
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: One-time token displayed on server startup
+
+paths:
+  /health:
+    get:
+      summary: Server health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  uptime: { type: number, example: 42.5 }
+
+  /providers:
+    get:
+      summary: List providers and their env var names (no values)
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string, example: openai }
+                        env_vars: { type: array, items: { type: string }, example: [OPENAI_API_KEY] }
+        "401":
+          description: Missing or invalid bearer token
+
+  /credentials:
+    get:
+      summary: List allowed credential names (no values)
+      responses:
+        "200":
+          description: Credential name list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items: { type: string }
+                    example: [OPENAI_API_KEY, ANTHROPIC_API_KEY]
+        "401":
+          description: Missing or invalid bearer token
+
+  /credentials/{name}:
+    post:
+      summary: Get a credential value (must be in allowed list)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          example: OPENAI_API_KEY
+      responses:
+        "200":
+          description: Credential value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  value: { type: string }
+        "403":
+          description: Credential not in allowed list
+        "404":
+          description: Credential not found in .env
+        "401":
+          description: Missing or invalid bearer token

@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: check-please-broker
+  labels:
+    app: check-please
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: check-please
+  template:
+    metadata:
+      labels:
+        app: check-please
+    spec:
+      containers:
+        - name: broker
+          image: check-please:latest
+          command: ["python", "agent_api.py", "--serve"]
+          ports:
+            - containerPort: 8458
+          env:
+            - name: ENV_FILE
+              value: /secrets/.env
+          volumeMounts:
+            - name: env-secret
+              mountPath: /secrets
+              readOnly: true
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 100m
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8458
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8458
+            initialDelaySeconds: 2
+            periodSeconds: 10
+      volumes:
+        - name: env-secret
+          secret:
+            secretName: check-please-env
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: check-please-broker
+  labels:
+    app: check-please
+spec:
+  type: ClusterIP
+  selector:
+    app: check-please
+  ports:
+    - port: 8458
+      targetPort: 8458

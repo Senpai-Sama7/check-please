@@ -1,10 +1,11 @@
 """Credential broker for AI agents.
 
 Modes:
-  --serve       HTTP API on localhost (default)
-  --env CMD     Launch CMD with allowed credentials as env vars
-  --export      Print shell export statements for eval/source
-  --mcp         MCP (Model Context Protocol) stdio server
+  --serve           HTTP API on localhost (default)
+  --env CMD         Launch CMD with allowed credentials as env vars
+  --export          Print shell export statements for eval/source
+  --write-env PATH  Write allowed credentials to a file (KEY=VALUE)
+  --mcp             MCP (Model Context Protocol) stdio server
 
 Owner controls access via .check_please_agent_permissions.json.
 Zero new dependencies — stdlib only (+ python-dotenv for .env parsing).
@@ -256,6 +257,20 @@ def print_exports(env_path: Path):
         print(f"export {k}={shlex.quote(v)}")
 
 
+# ── Mode: --env-file (write credentials to a file) ──
+
+def write_env_file(env_path: Path, output_path: Path):
+    """Write allowed credentials to a file in KEY=VALUE format."""
+    creds = _get_allowed_creds(env_path)
+    if not creds:
+        return
+    output_path.write_text(
+        "".join(f"{k}={v}\n" for k, v in sorted(creds.items()))
+    )
+    os.chmod(output_path, 0o600)
+    print(f"Wrote {len(creds)} credentials to {output_path}", file=sys.stderr)
+
+
 # ── Mode: --mcp (Model Context Protocol stdio server) ──
 
 def run_mcp(env_path: Path):
@@ -371,6 +386,11 @@ if __name__ == "__main__":
         serve(env_path, port)
     elif args[0] == "--export":
         print_exports(env_path)
+    elif args[0] == "--write-env":
+        if len(args) < 2:
+            print("Usage: agent_api.py --write-env OUTPUT_PATH", file=sys.stderr)
+            sys.exit(2)
+        write_env_file(env_path, Path(args[1]))
     elif args[0] == "--mcp":
         run_mcp(env_path)
     elif args[0] == "--env":
@@ -382,10 +402,11 @@ if __name__ == "__main__":
         print(f"""Usage: agent_api.py [MODE] [OPTIONS]
 
 Modes:
-  --serve          HTTP credential broker (default)
-  --env CMD...     Launch CMD with allowed credentials as env vars
-  --export         Print shell export statements (use with eval)
-  --mcp            MCP stdio server for Claude Code, Copilot, etc.
+  --serve            HTTP credential broker (default)
+  --env CMD...       Launch CMD with allowed credentials as env vars
+  --export           Print shell export statements (use with eval)
+  --write-env PATH   Write credentials to a file in KEY=VALUE format
+  --mcp              MCP stdio server for Claude Code, Copilot, etc.
 
 Options:
   --env-file PATH  Path to .env file (default: .env)
