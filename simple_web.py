@@ -327,7 +327,32 @@ tr:hover td{background:rgba(129,140,248,.04)}
       <div class="lock-err" id="login-err"></div>
       <button class="btn primary" onclick="unlock()" style="width:100%;margin-bottom:8px">Unlock</button>
       <button class="btn" onclick="biometricAuth()" id="bio-login-btn" style="width:100%;display:none">🔒 Unlock with Biometrics</button>
+      <div style="margin-top:16px"><a href="#" onclick="showForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none;transition:color .2s" onmouseover="this.style.color='var(--glow)'" onmouseout="this.style.color='var(--text3)'">Forgot password?</a></div>
     </div>
+    <!-- Forgot password -->
+    <div id="lock-forgot" style="display:none">
+      <p style="margin-bottom:16px">Enter your recovery key to reset your password. This is the key shown when you created your account.</p>
+      <div class="input-group"><label>Recovery Key</label><input type="text" id="forgot-key" placeholder="XXXX-XXXX-XXXX-XXXX" style="font-family:var(--font-mono);letter-spacing:.05em"></div>
+      <div class="input-group" style="margin-top:10px"><label>New Password</label><input type="password" id="forgot-new-pass" placeholder="Choose a new password"></div>
+      <div class="lock-err" id="forgot-err"></div>
+      <button class="btn primary" onclick="recoverAccount()" style="width:100%;margin-bottom:8px">Reset Password</button>
+      <button class="btn danger" onclick="if(confirm('This will DELETE all vault data and reset your account. This cannot be undone.'))nukeAccount()" style="width:100%;margin-bottom:8px">🗑️ Erase Everything &amp; Start Over</button>
+      <div style="margin-top:8px"><a href="#" onclick="hideForgot();return false" style="color:var(--text3);font-size:.75rem;text-decoration:none">← Back to login</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- Recovery Key Display -->
+<div class="modal-overlay" id="modal-recovery" style="z-index:280">
+  <div class="modal" style="text-align:center">
+    <div style="font-size:2rem;margin-bottom:12px">🔑</div>
+    <h2>Save Your Recovery Key</h2>
+    <p style="color:var(--text2);font-size:.8125rem;line-height:1.6;margin-bottom:20px">If you forget your password, this key is the only way to recover your account. Save it somewhere safe — it won't be shown again.</p>
+    <div style="background:var(--void);border:1px solid var(--glass-border);border-radius:12px;padding:18px;font-family:var(--font-mono);font-size:1.1rem;letter-spacing:.08em;font-weight:700;color:var(--glow);margin-bottom:16px;user-select:all" id="recovery-key-display">—</div>
+    <div class="btn-group" style="justify-content:center;margin-bottom:16px">
+      <button class="btn" onclick="copyText(E('recovery-key-display').textContent)">📋 Copy</button>
+    </div>
+    <button class="btn primary" onclick="E('modal-recovery').style.display='none';startTour()" style="width:100%">I've Saved It — Continue</button>
   </div>
 </div>
 
@@ -498,6 +523,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
             <span class="badge accent" id="bio-badge" style="display:none">Active</span>
           </div>
           <p style="color:var(--text2);font-size:.75rem;line-height:1.5;margin-bottom:10px">Use Face ID, Touch ID, fingerprint, or Windows Hello to unlock.</p>
+          <div id="bio-unsupported" style="display:none;color:var(--amber);font-size:.75rem;padding:10px 14px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:8px;margin-bottom:10px">⚠️ Biometrics require a browser (Chrome, Edge, Safari). Open <span style="font-family:var(--font-mono)">http://127.0.0.1:8457</span> in your browser to set up.</div>
           <div class="btn-group">
             <button class="btn success" onclick="registerBiometric()" id="bio-setup-btn">🔒 Set Up Biometrics</button>
             <button class="btn danger sm" onclick="removeBiometric()" id="bio-remove-btn" style="display:none">Remove</button>
@@ -722,15 +748,23 @@ async function checkAccount(){
   if(d.exists){E('lock-setup').style.display='none';E('lock-login').style.display='block';if(d.name)E('lock-greeting').textContent='Welcome back, '+d.name+'.';if(d.has_biometric&&window.PublicKeyCredential)E('bio-login-btn').style.display='block';}
   else{E('lock-setup').style.display='block';E('lock-login').style.display='none';}
 }
-async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');startTour();}
+async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!p1||p1.length<4){E('setup-err').textContent='Password must be at least 4 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
 async function unlock(){const pw=E('login-pass').value;if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});if(!d.ok){E('login-err').textContent='Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<4){toast('Min 4 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
-async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();if(d.has_biometric){E('bio-status').textContent='Active';E('bio-badge').style.display='inline-flex';E('bio-setup-btn').textContent='🔒 Re-register';E('bio-remove-btn').style.display='inline-flex';}else{E('bio-status').textContent='Not set up';E('bio-badge').style.display='none';E('bio-setup-btn').textContent='🔒 Set Up Biometrics';E('bio-remove-btn').style.display='none';}}
+function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
+function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
+async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value;if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<4){E('forgot-err').textContent='New password must be at least 4 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
+async function nukeAccount(){const d=await api('/api/account/nuke',{method:'POST'});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
+
+async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
+  const bioOk=!!(window.PublicKeyCredential&&navigator.credentials?.create);
+  if(!bioOk)E('bio-unsupported').style.display='block';
+  if(d.has_biometric){E('bio-status').textContent='Active';E('bio-badge').style.display='inline-flex';E('bio-setup-btn').textContent='🔒 Re-register';E('bio-remove-btn').style.display='inline-flex';}else{E('bio-status').textContent='Not set up';E('bio-badge').style.display='none';E('bio-setup-btn').textContent='🔒 Set Up Biometrics';E('bio-remove-btn').style.display='none';}}
 
 // ── WebAuthn ──
 function bufToB64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
 function b64ToBuf(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;}
-async function registerBiometric(){if(!window.PublicKeyCredential){toast('Not supported in this browser','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:location.hostname},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
+async function registerBiometric(){if(!window.PublicKeyCredential||!navigator.credentials?.create){E('bio-unsupported').style.display='block';toast('Biometrics not available — open in a browser instead','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:location.hostname},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
 async function biometricAuth(){if(!window.PublicKeyCredential){toast('Not supported','error');return;}try{const ch=await api('/api/webauthn/auth-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.get({publicKey:{challenge:b64ToBuf(ch.challenge),allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal']})),userVerification:'required',timeout:60000}});const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(!d.ok){toast('Verification failed','error');return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
 async function removeBiometric(){if(!confirm('Remove biometric unlock?'))return;await api('/api/webauthn/remove',{method:'POST'});toast('Removed','success');loadAccountSettings();}
 
@@ -905,12 +939,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Passkey too short"}, 400)
                 return
             check_blob = _encrypt("check_please_ok", passkey)
+            recovery_key = "-".join(secrets.token_hex(2).upper() for _ in range(4))
+            recovery_hash = hashlib.sha256(recovery_key.encode()).hexdigest()
             _save_account({
                 "name": data.get("name", ""),
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "check": check_blob,
+                "recovery_hash": recovery_hash,
             })
-            self._json({"ok": True})
+            self._json({"ok": True, "recovery_key": recovery_key})
         elif path == "/api/account/verify":
             try:
                 data = json.loads(body)
@@ -935,6 +972,34 @@ class Handler(BaseHTTPRequestHandler):
             acct = _load_account() or {}
             acct["check"] = _encrypt("check_please_ok", new_passkey)
             _save_account(acct)
+            self._json({"ok": True})
+        elif path == "/api/account/recover":
+            try:
+                data = json.loads(body)
+            except Exception:
+                self._json({"error": "Invalid JSON"}, 400)
+                return
+            acct = _load_account()
+            if not acct:
+                self._json({"error": "No account exists"}, 400)
+                return
+            key = data.get("recovery_key", "")
+            key_hash = hashlib.sha256(key.encode()).hexdigest()
+            if key_hash != acct.get("recovery_hash", ""):
+                self._json({"error": "Invalid recovery key"}, 403)
+                return
+            new_pw = data.get("new_passkey", "")
+            if len(new_pw) < 4:
+                self._json({"error": "Password too short"}, 400)
+                return
+            acct["check"] = _encrypt("check_please_ok", new_pw)
+            _save_account(acct)
+            self._json({"ok": True})
+        elif path == "/api/account/nuke":
+            if ACCOUNT_FILE.is_file():
+                ACCOUNT_FILE.unlink()
+            if VAULT_FILE.is_file():
+                VAULT_FILE.unlink()
             self._json({"ok": True})
         elif path == "/api/webauthn/register":
             try:
