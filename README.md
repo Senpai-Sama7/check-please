@@ -17,6 +17,7 @@
 [![Interfaces](https://img.shields.io/badge/interfaces-6_modes-0f3460?style=for-the-badge&logo=windowsterminal&logoColor=white)](#-interfaces)
 [![Zero Dependencies*](https://img.shields.io/badge/deps-3_total-0f3460?style=for-the-badge&logo=pypi&logoColor=white)](#)
 [![MCP Badge](https://lobehub.com/badge/mcp/senpai-sama7-check-please)](https://lobehub.com/mcp/senpai-sama7-check-please)
+[![MCP Badge](https://lobehub.com/badge/mcp-full/senpai-sama7-check-please?theme=light)](https://lobehub.com/mcp/senpai-sama7-check-please)
 
 <br/>
 
