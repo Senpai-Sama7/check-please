@@ -43,10 +43,14 @@ class TestKeyFingerprint:
         assert "sk-a" not in str(d)
 
     def test_to_dict_hash_redaction(self):
-        fp = KeyFingerprint(prefix="sk-a", suffix="xyz1", length=51)
+        fp = KeyFingerprint.from_key("sk-SUPERSECRETKEY1234567890abcdef")
         d = fp.to_dict("hash")
         assert d["redacted"].startswith("[sha256:")
-        assert d["length"] == 51
+        assert d["length"] == len("sk-SUPERSECRETKEY1234567890abcdef")
+        # Hash must be derived from the full key, not prefix+suffix
+        assert fp.key_hash
+        assert fp.key_hash in d["redacted"]
+        assert "SUPERSECRET" not in d["redacted"]
 
     def test_frozen(self):
         fp = KeyFingerprint.from_key("test-key")

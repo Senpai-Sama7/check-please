@@ -13,6 +13,7 @@ Zero new dependencies — stdlib only (+ python-dotenv for .env parsing).
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import secrets
@@ -32,6 +33,7 @@ DEFAULT_PORT = 8458
 PERMISSIONS_FILE = ".check_please_agent_permissions.json"
 LOG_FILE = "agent_access.log"
 USAGE_LOG = "agent_usage.log"
+MAX_BODY_BYTES = 10_485_760  # 10 MB
 
 
 def _parse_duration(s: str) -> float:
@@ -105,25 +107,31 @@ class _UsageTracker:
         except OSError:
             pass
 
-    def get_rpm(self, key: str) -> int:
+    def _rpm_unlocked(self, key: str) -> int:
+        """Return current RPM. Caller must hold self._lock."""
         now = time.time()
+        dq = self._rpm_windows.get(key)
+        if not dq:
+            return 0
+        while dq and dq[0] < now - 60:
+            dq.popleft()
+        return len(dq)
+
+    def get_rpm(self, key: str) -> int:
         with self._lock:
-            dq = self._rpm_windows.get(key)
-            if not dq:
-                return 0
-            while dq and dq[0] < now - 60:
-                dq.popleft()
-            return len(dq)
+            return self._rpm_unlocked(key)
 
     def summary(self, key: str = "") -> dict:
+        # Must not call get_rpm() while holding the lock — Lock is non-reentrant
+        # and that deadlocks GET /usage (and MCP usage tooling).
         with self._lock:
             if key:
                 return {"key": key, "requests": self._requests.get(key, 0),
                         "tokens": self._tokens.get(key, 0),
-                        "rpm": self.get_rpm(key)}
+                        "rpm": self._rpm_unlocked(key)}
             return {k: {"requests": self._requests.get(k, 0),
                         "tokens": self._tokens.get(k, 0),
-                        "rpm": self.get_rpm(k)}
+                        "rpm": self._rpm_unlocked(k)}
                     for k in set(list(self._requests) + list(self._tokens))}
 
 
@@ -232,11 +240,17 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                 _log_access(base_dir, "token_expired")
                 return None
             auth = self.headers.get("Authorization", "")
-            if not auth.startswith("Bearer ") or auth[7:] != token:
+            if not auth.startswith("Bearer "):
                 self.send_error(401, "Invalid or missing bearer token")
                 _log_access(base_dir, "auth_failed")
                 return None
-            return auth[7:]
+            presented = auth[7:]
+            # Constant-time compare — reject length mismatch without leaking via short-circuit
+            if not hmac.compare_digest(presented, token):
+                self.send_error(401, "Invalid or missing bearer token")
+                _log_access(base_dir, "auth_failed")
+                return None
+            return presented
 
         def _json_response(self, code: int, data: dict):
             body = json.dumps(data).encode()
@@ -246,6 +260,7 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
@@ -253,8 +268,16 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
             return self.headers.get("X-Agent-Id", "unknown")
 
         def _read_body(self) -> bytes:
-            length = int(self.headers.get("Content-Length", 0))
-            if length > 10_485_760:  # 10MB cap
+            raw_len = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_len)
+            except (TypeError, ValueError):
+                self._json_response(400, {"error": "Invalid Content-Length"})
+                return b""
+            if length < 0:
+                self._json_response(400, {"error": "Invalid Content-Length"})
+                return b""
+            if length > MAX_BODY_BYTES:
                 self._json_response(413, {"error": "Request body too large"})
                 return b""
             return self.rfile.read(length) if length else b""
@@ -408,7 +431,7 @@ def create_permissions_template(base_dir: Path) -> Path:
     return p
 
 
-def serve(env_path: Path, port: int = DEFAULT_PORT):
+def serve(env_path: Path, port: int = DEFAULT_PORT, quiet: bool = False):
     base_dir = env_path.parent
     env_vars = _load_env(env_path)
     if not env_vars:
@@ -440,14 +463,23 @@ def serve(env_path: Path, port: int = DEFAULT_PORT):
         print(f"\033[36m  Token expires in:\033[0m  {int(token_ttl)}s")
     print(f"\033[36m  Usage tracking:\033[0m    enabled")
     print(f"\033[36m  Listening on:\033[0m      http://127.0.0.1:{port}")
-    print(f"\n\033[1m  Bearer Token (give to your agent):\033[0m")
-    print(f"\033[32m  {token}\033[0m")
+    if quiet:
+        # Avoid printing the bearer token into terminal scrollback (L-3)
+        token_file = base_dir / ".check_please_agent_token"
+        token_file.write_text(token + "\n")
+        os.chmod(token_file, 0o600)
+        print(f"\n\033[1m  Bearer token written to:\033[0m {token_file}")
+        print(f"\033[2m  (use --quiet to suppress token display; cat the file to retrieve it)\033[0m")
+    else:
+        print(f"\n\033[1m  Bearer Token (give to your agent):\033[0m")
+        print(f"\033[32m  {token}\033[0m")
     print(f"\n\033[2m  Access log: {base_dir / LOG_FILE}\033[0m")
     print(f"\033[2m  Usage log:  {base_dir / USAGE_LOG}\033[0m")
     print(f"\033[2m  Permissions: {base_dir / PERMISSIONS_FILE}\033[0m")
     print(f"\n\033[36m  Example:\033[0m")
-    print(f"  curl -H 'Authorization: Bearer {token}' http://127.0.0.1:{port}/credentials")
-    print(f"  curl -H 'Authorization: Bearer {token}' http://127.0.0.1:{port}/usage")
+    tok_hint = "$(cat .check_please_agent_token)" if quiet else token
+    print(f"  curl -H 'Authorization: Bearer {tok_hint}' http://127.0.0.1:{port}/credentials")
+    print(f"  curl -H 'Authorization: Bearer {tok_hint}' http://127.0.0.1:{port}/usage")
     print(f"\n\033[2m  Press Ctrl+C to stop\033[0m\n")
 
     handler = _make_handler(token, env_vars, permissions, base_dir, token_expires, tracker)
@@ -607,7 +639,7 @@ def run_mcp(env_path: Path):
             _respond(id, {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "check_please", "version": "1.0.0"}
+                "serverInfo": {"name": "check_please", "version": "1.1.0"}
             })
         elif method == "notifications/initialized":
             pass  # no response needed
@@ -670,18 +702,28 @@ def run_mcp(env_path: Path):
 if __name__ == "__main__":
     args = sys.argv[1:]
     env_path = Path(".env")
+    quiet = False
 
-    # Parse --env-file before mode flags
-    if "--env-file" in args:
-        idx = args.index("--env-file")
-        env_path = Path(args[idx + 1])
-        args = args[:idx] + args[idx + 2:]
+    # Parse --env-file / --quiet before mode flags
+    cleaned: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--env-file" and i + 1 < len(args):
+            env_path = Path(args[i + 1])
+            i += 2
+        elif args[i] == "--quiet":
+            quiet = True
+            i += 1
+        else:
+            cleaned.append(args[i])
+            i += 1
+    args = cleaned
 
     if not args or args[0] == "--serve":
         port = DEFAULT_PORT
         if len(args) > 1 and args[-1].isdigit():
             port = int(args[-1])
-        serve(env_path, port)
+        serve(env_path, port, quiet=quiet)
     elif args[0] == "--export":
         print_exports(env_path)
     elif args[0] == "--write-env":
@@ -708,5 +750,6 @@ Modes:
 
 Options:
   --env-file PATH  Path to .env file (default: .env)
+  --quiet          Write bearer token to .check_please_agent_token instead of printing it
 """, file=sys.stderr)
         sys.exit(2)

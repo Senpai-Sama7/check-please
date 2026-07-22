@@ -27,5 +27,6 @@ build/
 .check_please_seen
 .check_please_name
 .check_please_agent_permissions.json
+.check_please_agent_token
 agent_access.log
 agent_usage.log
