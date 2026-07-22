@@ -12,6 +12,7 @@ Handles:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from collections import defaultdict
@@ -226,11 +227,10 @@ def organize_env(input_path: Path, output_path: Path) -> None:
     for cat, key, val in entries:
         grouped[cat].append((key, val))
 
-    # Determine quoting: quote if value contains spaces, special chars, or is empty
+    # Determine quoting: always quote; escape backslashes and double-quotes
     def quote(v: str) -> str:
-        if not v or re.search(r'[\s#;$`\\]', v) or v != v.strip():
-            return f'"{v}"'
-        return f'"{v}"'  # Always quote for consistency
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
 
     out_lines: list[str] = []
     cat_order = [c for c in CATEGORIES if c in grouped] + (["Uncategorized"] if "Uncategorized" in grouped else [])
@@ -255,6 +255,10 @@ def organize_env(input_path: Path, output_path: Path) -> None:
 
     out_lines.append("")  # trailing newline
     output_path.write_text("\n".join(out_lines))
+    try:
+        os.chmod(output_path, 0o600)
+    except OSError:
+        pass
     print(f"✓ Organized {len(entries)} entries into {len(cat_order)} categories → {output_path}")
     if skipped:
         print(f"⚠ {len(skipped)} unparseable lines appended as comments")

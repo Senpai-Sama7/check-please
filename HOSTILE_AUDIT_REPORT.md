@@ -35,14 +35,20 @@ inherent to a localhost stdlib HTTP server (single global session, WebAuthn is c
 | M-4 | 4-char password min | ✅ Fixed | Server + client enforce ≥ 8 (`_MIN_PASSKEY_LEN`) |
 | L-3 | Bearer token in scrollback | ✅ Mitigated | `--quiet` writes token to chmod-600 file |
 
-### Additional fixes from forensic pass
+### Additional fixes from forensic pass (2026-07-22 continued)
 
 - **Deadlock:** `_UsageTracker.summary()` re-entered a non-reentrant `Lock` via `get_rpm()` — hung `GET /usage` and MCP usage reporting. Fixed with `_rpm_unlocked()`.
-- **Vault at rest:** Passwords were stored as plaintext JSON. Now encrypted under the session passkey; legacy plaintext vaults migrate on unlock.
-- **Logout:** Client-only logout left the server session valid. Added `POST /api/account/logout` + cookie clear.
-- **`/stop`:** Was public — now requires a valid session.
-- **Constant-time compares:** Recovery hash + bearer token use `hmac.compare_digest`.
-- **Provider bail:** Mid-run skip of remaining keys after N consecutive auth failures (was post-hoc only).
+- **Vault at rest:** Passwords were stored as plaintext JSON. Now encrypted under a random vault key wrapped by passkey + recovery key.
+- **Recovery preserves vault:** `vault_key_recovery_wrap` lets password reset unwrap the same vault key.
+- **WebAuthn session minting disabled:** Credential-ID-only checks no longer issue sessions (requires full assertion verification).
+- **XSS hardening:** SPA audit/env/scan HTML paths escape dynamic fields (`esc` / `escAttr`).
+- **Username path traversal blocked:** `^[A-Za-z0-9_.-]{1,64}$` + resolve-under-base checks.
+- **Logout / `/stop`:** Server-side logout clears session; `/stop` requires auth.
+- **organize_env:** chmod 600 + escaped quotes in values.
+- **Hardlink detection:** `st_nlink > 1` check.
+- **Desktop launcher:** picks a free port instead of `fuser -k`.
+- **Orchestrator:** cache hits rewrite `env_var`; env injection restores prior process values via `try/finally`.
+- **Agent API:** safe integer parsing for usage tokens; extraction modes record `max_uses`.
 - **Fingerprint hash redaction:** Hashes the full key, not prefix+suffix.
 
 ---

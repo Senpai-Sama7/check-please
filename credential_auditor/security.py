@@ -35,8 +35,11 @@ def is_symlink_or_hardlink_attack(path: Path) -> bool:
     if path.is_symlink():
         return True
     if path.exists():
-        # Hardlink check: resolved path differs from the path itself
         try:
+            st = os.stat(path, follow_symlinks=False)
+            # Multiple hard links → writing would also mutate another name
+            if st.st_nlink > 1:
+                return True
             if path.resolve(strict=True) != path.absolute():
                 return True
         except OSError:
