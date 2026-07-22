@@ -31,7 +31,12 @@ _LEGACY_VAULT = DATA_DIR / ".vault.json"
 
 _current_user: str = ""  # set on login
 _session_token: str = ""  # set on login, validated on all /api/ requests
+_session_passkey: str = ""  # held in memory only while session is active (vault crypto)
 _failed_attempts: dict = {}  # {username: (count, last_fail_time)}
+_MIN_PASSKEY_LEN = 8
+_MAX_BODY_BYTES = 10_485_760  # 10 MB
+_RECOVERY_GROUPS = 4
+_RECOVERY_BYTES_PER_GROUP = 4  # 4×32 bits = 128-bit recovery keys
 
 def _acct_path(username: str) -> Path:
     ACCOUNTS_DIR.mkdir(exist_ok=True)
@@ -70,17 +75,38 @@ def _migrate_legacy() -> None:
 VAULT_FILE = _LEGACY_VAULT  # kept for test compat
 
 def _load_vault() -> list[dict]:
+    """Load vault entries. Supports legacy plaintext list and v2 encrypted envelope."""
     vf = _vault_path()
-    if vf.is_file():
+    if not vf.is_file():
+        return []
+    try:
+        raw = json.loads(vf.read_text())
+    except Exception:
+        return []
+    if isinstance(raw, list):
+        return raw  # legacy plaintext
+    if isinstance(raw, dict) and "encrypted" in raw:
+        if not _session_passkey:
+            return []
+        pt = _decrypt(raw["encrypted"], _session_passkey)
+        if not pt:
+            return []
         try:
-            return json.loads(vf.read_text())
+            data = json.loads(pt)
+            return data if isinstance(data, list) else []
         except Exception:
             return []
     return []
 
 def _save_vault(entries: list[dict]) -> None:
+    """Persist vault. Encrypts at rest when a session passkey is available."""
     vf = _vault_path()
-    vf.write_text(json.dumps(entries, indent=2))
+    if _session_passkey:
+        blob = _encrypt(json.dumps(entries, separators=(",", ":")), _session_passkey)
+        vf.write_text(json.dumps({"v": 2, "encrypted": blob}, indent=2))
+    else:
+        # Fallback for migration/tests without an active session — still chmod 600
+        vf.write_text(json.dumps(entries, indent=2))
     os.chmod(vf, 0o600)
 
 def _vault_id() -> str:
@@ -102,24 +128,62 @@ def _derive_key(passkey: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", passkey.encode(), salt, 200_000)
 
 def _encrypt(data: str, passkey: str) -> dict:
+    """Authenticated encryption (v2).
+
+    Construction (stdlib-only, no third-party crypto deps):
+      1. PBKDF2-HMAC-SHA256 (200k) → master key
+      2. HMAC split into enc_key / mac_key (domain separation)
+      3. SHAKE-256(enc_key || nonce) keystream XOR plaintext
+      4. HMAC-SHA256(mac_key, nonce || ciphertext) integrity tag
+
+    v1 (legacy PBKDF2-as-stream) remains decryptable for migration.
+    """
     salt = secrets.token_bytes(16)
+    nonce = secrets.token_bytes(16)
     key = _derive_key(passkey, salt)
-    stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(data))
-    ct = bytes(a ^ b for a, b in zip(data.encode(), stream))
-    mac = _hmac.new(key, ct, "sha256").hexdigest()
-    return {"salt": salt.hex(), "ct": ct.hex(), "mac": mac, "v": 1}
+    enc_key = _hmac.new(key, b"check_please:enc", "sha256").digest()
+    mac_key = _hmac.new(key, b"check_please:mac", "sha256").digest()
+    pt = data.encode()
+    stream = hashlib.shake_256(enc_key + nonce).digest(len(pt))
+    ct = bytes(a ^ b for a, b in zip(pt, stream))
+    mac = _hmac.new(mac_key, nonce + ct, "sha256").hexdigest()
+    return {"salt": salt.hex(), "nonce": nonce.hex(), "ct": ct.hex(), "mac": mac, "v": 2}
 
 def _decrypt(blob: dict, passkey: str) -> str | None:
     try:
         salt = bytes.fromhex(blob["salt"])
         ct = bytes.fromhex(blob["ct"])
         key = _derive_key(passkey, salt)
+        version = int(blob.get("v", 1))
+        if version >= 2:
+            nonce = bytes.fromhex(blob["nonce"])
+            enc_key = _hmac.new(key, b"check_please:enc", "sha256").digest()
+            mac_key = _hmac.new(key, b"check_please:mac", "sha256").digest()
+            expected = _hmac.new(mac_key, nonce + ct, "sha256").hexdigest()
+            if not _hmac.compare_digest(expected, blob.get("mac", "")):
+                return None
+            stream = hashlib.shake_256(enc_key + nonce).digest(len(ct))
+            return bytes(a ^ b for a, b in zip(ct, stream)).decode()
+        # v1 legacy: PBKDF2 keystream (kept for account/backup migration)
         if not _hmac.compare_digest(_hmac.new(key, ct, "sha256").hexdigest(), blob.get("mac", "")):
             return None
         stream = hashlib.pbkdf2_hmac("sha256", key, salt + b"stream", 1, dklen=len(ct))
         return bytes(a ^ b for a, b in zip(ct, stream)).decode()
     except Exception:
         return None
+
+def _make_recovery_key() -> str:
+    """128-bit recovery key formatted as XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX."""
+    return "-".join(
+        secrets.token_hex(_RECOVERY_BYTES_PER_GROUP).upper()
+        for _ in range(_RECOVERY_GROUPS)
+    )
+
+def _clear_session() -> None:
+    global _current_user, _session_token, _session_passkey
+    _current_user = ""
+    _session_token = ""
+    _session_passkey = ""
 
 def _load_account(username: str | None = None) -> dict | None:
     name = username or _current_user
@@ -406,7 +470,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <!-- Forgot password -->
     <div id="lock-forgot" style="display:none">
       <p style="margin-bottom:16px">Enter your recovery key to reset your password. This is the key shown when you created your account.</p>
-      <div class="input-group"><label>Recovery Key</label><input type="text" id="forgot-key" placeholder="XXXX-XXXX-XXXX-XXXX" style="font-family:var(--font-mono);letter-spacing:.05em"></div>
+      <div class="input-group"><label>Recovery Key</label><input type="text" id="forgot-key" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" style="font-family:var(--font-mono);letter-spacing:.05em"></div>
       <div class="input-group" style="margin-top:10px"><label>New Password</label><input type="password" id="forgot-new-pass" placeholder="Choose a new password"></div>
       <div class="lock-err" id="forgot-err"></div>
       <button class="btn primary" onclick="recoverAccount()" style="width:100%;margin-bottom:8px">Reset Password</button>
@@ -461,7 +525,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <a onclick="go('providers')" data-page="providers"><span class="icon">🌐</span> Providers</a>
     <a onclick="go('settings')" data-page="settings"><span class="icon">⚙️</span> Settings</a>
   </nav>
-  <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.0.0 · Local Only · Encrypted</div></div>
+  <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.1.0 · Local Only · Encrypted</div></div>
 </div>
 
 <!-- Main -->
@@ -973,7 +1037,7 @@ function showSetup(){E('lock-login').style.display='none';E('lock-forgot').style
 function showLogin(){E('lock-setup').style.display='none';E('lock-forgot').style.display='none';E('lock-login').style.display='block';
   api('/api/account/status').then(d=>populateLogin(d.users||[]));}
 function onUserPick(){E('login-err').textContent='';}
-function logout(){E('lock-screen').classList.remove('hidden');E('login-pass').value='';E('login-err').textContent='';checkAccount();}
+function logout(){api('/api/account/logout',{method:'POST'}).finally(()=>{E('lock-screen').classList.remove('hidden');E('login-pass').value='';E('login-err').textContent='';checkAccount();});}
 async function createAccount(){const name=E('setup-name').value.trim(),p1=E('setup-pass').value,p2=E('setup-pass2').value;if(!name){E('setup-err').textContent='Username is required.';return;}if(!p1||p1.length<8){E('setup-err').textContent='Password must be at least 8 characters.';return;}if(p1!==p2){E('setup-err').textContent='Passwords do not match.';return;}const d=await api('/api/account/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,passkey:p1})});if(d.error){E('setup-err').textContent=d.error;return;}E('lock-screen').classList.add('hidden');if(d.recovery_key){E('recovery-key-display').textContent=d.recovery_key;E('modal-recovery').style.display='flex';}else{startTour();}}
 async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!user){E('login-err').textContent='Enter your username.';return;}if(!pw){E('login-err').textContent='Enter your password.';return;}const d=await api('/api/account/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,passkey:pw})});if(!d.ok){E('login-err').textContent=d.error||'Incorrect password.';return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<8){toast('Min 8 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
@@ -1046,6 +1110,10 @@ class Handler(BaseHTTPRequestHandler):
         _session_token = secrets.token_urlsafe(32)
         self._pending_session_cookie = _session_token
 
+    def _clear_session_cookie(self):
+        """Queue cookie deletion for next response."""
+        self._pending_clear_session = True
+
     def _json(self, data: dict, code: int = 200) -> None:
         body = json.dumps(data).encode()
         self.send_response(code)
@@ -1055,6 +1123,9 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(self, "_pending_session_cookie", None):
             self.send_header("Set-Cookie", f"session={self._pending_session_cookie}; HttpOnly; SameSite=Strict; Path=/")
             self._pending_session_cookie = None
+        if getattr(self, "_pending_clear_session", False):
+            self.send_header("Set-Cookie", "session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+            self._pending_clear_session = False
         self.end_headers()
         self.wfile.write(body)
 
@@ -1088,8 +1159,16 @@ class Handler(BaseHTTPRequestHandler):
             return {"error": str(e)}
 
     def _read_body(self) -> bytes:
-        length = int(self.headers.get("Content-Length", 0))
-        if length > 10_485_760:  # 10MB cap
+        raw_len = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_len)
+        except (TypeError, ValueError):
+            self._json({"error": "Invalid Content-Length"}, 400)
+            return b""
+        if length < 0:
+            self._json({"error": "Invalid Content-Length"}, 400)
+            return b""
+        if length > _MAX_BODY_BYTES:
             self._json({"error": "Request body too large"}, 413)
             return b""
         return self.rfile.read(length) if length else b""
@@ -1097,7 +1176,7 @@ class Handler(BaseHTTPRequestHandler):
     # Endpoints that don't require a session
     _PUBLIC_PATHS = {"/", "/api/account/create", "/api/account/verify", "/api/account/recover",
                      "/api/account/status", "/api/account/users", "/api/webauthn/auth-challenge",
-                     "/api/webauthn/auth", "/api/vault/strength", "/stop"}
+                     "/api/webauthn/auth", "/api/vault/strength"}
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
@@ -1200,13 +1279,15 @@ class Handler(BaseHTTPRequestHandler):
                 w.writerow([e.get("site", ""), e.get("username", ""), e.get("password", ""), e.get("notes", "")])
             self._csv_response(out.getvalue(), "vault_export.csv")
         elif path == "/stop":
+            if not self._check_session():
+                return
             self._html("<h1>Server stopped</h1><p>You can close this tab.</p>")
             threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
             self._html("<h1>Not found</h1>", 404)
 
     def do_POST(self) -> None:
-        global _current_user
+        global _current_user, _session_passkey
         path = self.path.split("?")[0]
         if path not in self._PUBLIC_PATHS and path.startswith("/api/"):
             if not self._check_session():
@@ -1227,12 +1308,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Username already taken"}, 400)
                 return
             passkey = data.get("passkey", "")
-            if len(passkey) < 8:
-                self._json({"error": "Password must be at least 8 characters"}, 400)
+            if len(passkey) < _MIN_PASSKEY_LEN:
+                self._json({"error": f"Password must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
             _current_user = username
+            _session_passkey = passkey
             check_blob = _encrypt("check_please_ok", passkey)
-            recovery_key = "-".join(secrets.token_hex(2).upper() for _ in range(4))
+            recovery_key = _make_recovery_key()
             recovery_salt = secrets.token_bytes(16)
             recovery_hash = hashlib.pbkdf2_hmac("sha256", recovery_key.encode(), recovery_salt, 200_000).hex()
             _save_account({
@@ -1242,6 +1324,8 @@ class Handler(BaseHTTPRequestHandler):
                 "recovery_hash": recovery_hash,
                 "recovery_salt": recovery_salt.hex(),
             })
+            # Ensure new accounts start with an encrypted empty vault
+            _save_vault([])
             self._set_session_cookie()
             self._json({"ok": True, "recovery_key": recovery_key})
         elif path == "/api/account/verify":
@@ -1255,30 +1339,50 @@ class Handler(BaseHTTPRequestHandler):
             if wait > 0:
                 self._json({"ok": False, "error": f"Too many attempts. Try again in {int(wait)+1}s."}, 429)
                 return
-            ok = _verify_passkey(data.get("passkey", ""), username)
+            passkey = data.get("passkey", "")
+            ok = _verify_passkey(passkey, username)
             if ok:
                 _current_user = username
+                _session_passkey = passkey
                 _clear_fails(username)
+                # Migrate legacy plaintext vault → encrypted envelope on first unlock
+                vf = _vault_path(username)
+                if vf.is_file():
+                    try:
+                        raw = json.loads(vf.read_text())
+                        if isinstance(raw, list):
+                            _save_vault(raw)
+                    except Exception:
+                        pass
                 self._set_session_cookie()
             else:
                 _record_fail(username)
             self._json({"ok": ok})
+        elif path == "/api/account/logout":
+            _clear_session()
+            self._clear_session_cookie()
+            self._json({"ok": True})
         elif path == "/api/account/change-passkey":
             try:
                 data = json.loads(body)
             except Exception:
                 self._json({"error": "Invalid JSON"}, 400)
                 return
-            if not _verify_passkey(data.get("old_passkey", "")):
+            old_passkey = data.get("old_passkey", "")
+            if not _verify_passkey(old_passkey):
                 self._json({"error": "Current passkey is incorrect"}, 403)
                 return
             new_passkey = data.get("new_passkey", "")
-            if len(new_passkey) < 4:
-                self._json({"error": "New passkey too short"}, 400)
+            if len(new_passkey) < _MIN_PASSKEY_LEN:
+                self._json({"error": f"New passkey must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
+            # Re-encrypt vault under the new passkey
+            entries = _load_vault()
             acct = _load_account() or {}
             acct["check"] = _encrypt("check_please_ok", new_passkey)
+            _session_passkey = new_passkey
             _save_account(acct)
+            _save_vault(entries)
             self._json({"ok": True})
         elif path == "/api/account/recover":
             try:
@@ -1297,12 +1401,12 @@ class Handler(BaseHTTPRequestHandler):
                 key_hash = hashlib.pbkdf2_hmac("sha256", key.encode(), bytes.fromhex(stored_salt), 200_000).hex()
             else:
                 key_hash = hashlib.sha256(key.encode()).hexdigest()  # legacy fallback
-            if key_hash != acct.get("recovery_hash", ""):
+            if not _hmac.compare_digest(key_hash, acct.get("recovery_hash", "")):
                 self._json({"error": "Invalid recovery key"}, 403)
                 return
             new_pw = data.get("new_passkey", "")
-            if len(new_pw) < 8:
-                self._json({"error": "Password must be at least 8 characters"}, 400)
+            if len(new_pw) < _MIN_PASSKEY_LEN:
+                self._json({"error": f"Password must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
             acct["check"] = _encrypt("check_please_ok", new_pw)
             _save_account(acct, username)
@@ -1320,8 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
                 vp = _vault_path(_current_user)
                 if ap.is_file(): ap.unlink()
                 if vp.is_file(): vp.unlink()
-                _current_user = ""
-                _session_token = ""
+                _clear_session()
+                self._clear_session_cookie()
             # Also clean legacy files
             if _LEGACY_ACCOUNT.is_file(): _LEGACY_ACCOUNT.unlink()
             if _LEGACY_VAULT.is_file(): _LEGACY_VAULT.unlink()
@@ -1376,13 +1480,14 @@ class Handler(BaseHTTPRequestHandler):
             acct = payload.get("account", {})
             if acct and acct.get("name"):
                 _current_user = acct["name"]
+                _session_passkey = passkey
                 _save_account(acct)
                 self._set_session_cookie()
-            # Restore vault
+            # Restore vault (re-encrypted under current session passkey)
             vault = payload.get("vault", [])
-            if vault:
+            if isinstance(vault, list):
                 _save_vault(vault)
-            self._json({"ok": True, "vault_entries": len(vault)})
+            self._json({"ok": True, "vault_entries": len(vault) if isinstance(vault, list) else 0})
         elif path == "/api/webauthn/register":
             try:
                 data = json.loads(body)

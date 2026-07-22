@@ -140,15 +140,39 @@ async def audit(
         else:
             uncached_tasks.append((var, key, inst))
 
-    # Failed-provider tracking
+    # Failed-provider tracking — bail mid-run so remaining keys for that provider are skipped
     fail_counts: dict[str, int] = {}
     skipped_providers: set[str] = set()
+    bail_lock = asyncio.Lock()
 
     sem = asyncio.Semaphore(_CONCURRENCY_LIMIT)
 
     async def _throttled_check(inst: Provider, var: str, key: str, client: httpx.AsyncClient) -> KeyResult:
         async with sem:
-            return await inst.check_key(var, key, client)
+            # Skip if this provider already bailed (checked under lock for consistency)
+            async with bail_lock:
+                if inst.name in skipped_providers:
+                    return KeyResult(
+                        provider=inst.name, env_var=var,
+                        key_fingerprint=KeyFingerprint.from_key(key),
+                        status="auth_failed",
+                        error_detail=f"skipped: provider bailed after {_FAIL_BAIL_THRESHOLD} consecutive failures",
+                    )
+            result = await inst.check_key(var, key, client)
+            if result.status in FAILING_STATUSES:
+                async with bail_lock:
+                    fail_counts[inst.name] = fail_counts.get(inst.name, 0) + 1
+                    if fail_counts[inst.name] >= _FAIL_BAIL_THRESHOLD:
+                        if inst.name not in skipped_providers:
+                            skipped_providers.add(inst.name)
+                            alog.log(
+                                "provider_bail", provider=inst.name,
+                                detail=f"skipped after {_FAIL_BAIL_THRESHOLD} consecutive failures",
+                            )
+            else:
+                async with bail_lock:
+                    fail_counts[inst.name] = 0
+            return result
 
     async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
         coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
@@ -169,18 +193,9 @@ async def audit(
             assert isinstance(raw_result, KeyResult)
             result = raw_result
 
-        # Cache the result
-        _cache.put(inst.name, key, result)
-
-        # Track consecutive failures per provider
-        if result.status in FAILING_STATUSES:
-            fail_counts[inst.name] = fail_counts.get(inst.name, 0) + 1
-            if fail_counts[inst.name] >= _FAIL_BAIL_THRESHOLD:
-                skipped_providers.add(inst.name)
-                alog.log("provider_bail", provider=inst.name,
-                         detail=f"skipped after {_FAIL_BAIL_THRESHOLD} consecutive failures")
-        else:
-            fail_counts[inst.name] = 0
+        # Only cache real network results (not bail-skips)
+        if not (result.status == "auth_failed" and result.error_detail and result.error_detail.startswith("skipped:")):
+            _cache.put(inst.name, key, result)
 
         if var in auto_detected_vars:
             result = replace(result, auto_detected=True)

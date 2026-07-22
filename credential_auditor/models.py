@@ -34,21 +34,23 @@ class KeyFingerprint:
     prefix: str
     suffix: str
     length: int
+    key_hash: str = ""  # sha256 of full key (never the raw key) for hash redaction
 
     @classmethod
     def from_key(cls, key: str) -> "KeyFingerprint":
+        import hashlib
         return cls(
             prefix=key[:4] if len(key) >= 4 else key,
             suffix=key[-4:] if len(key) >= 4 else "",
             length=len(key),
+            key_hash=hashlib.sha256(key.encode()).hexdigest()[:16],
         )
 
     def to_dict(self, redaction_level: str = "partial") -> dict:
         if redaction_level == "full":
             return {"redacted": "[REDACTED]", "length": self.length}
         if redaction_level == "hash":
-            import hashlib
-            h = hashlib.sha256(f"{self.prefix}{self.suffix}".encode()).hexdigest()[:12]
+            h = self.key_hash or "unknown"
             return {"redacted": f"[sha256:{h}]", "length": self.length}
         return {"prefix": self.prefix, "suffix": self.suffix, "length": self.length}
 
