@@ -352,8 +352,17 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                     self._json_response(400, {"error": "invalid JSON"})
                     return
                 key = data.get("key", "")
-                tokens = int(data.get("tokens", 0))
+                try:
+                    tokens = int(data.get("tokens", 0))
+                except (TypeError, ValueError):
+                    self._json_response(400, {"error": "tokens must be an integer"})
+                    return
+                if tokens < 0 or tokens > 1_000_000_000:
+                    self._json_response(400, {"error": "tokens out of range"})
+                    return
                 model = data.get("model", "")
+                if not isinstance(model, str):
+                    model = str(model)
                 if key and tokens > 0:
                     tracker.record_tokens(key, tokens, agent=agent, model=model)
                     # Check alert thresholds
@@ -491,8 +500,12 @@ def serve(env_path: Path, port: int = DEFAULT_PORT, quiet: bool = False):
         server.server_close()
 
 
-def _get_allowed_creds(env_path: Path) -> dict[str, str]:
-    """Load env and filter to only allowed credentials (respects scoped expiry)."""
+def _get_allowed_creds(env_path: Path, *, record_uses: bool = False) -> dict[str, str]:
+    """Load env and filter to only allowed credentials (respects scoped expiry).
+
+    When record_uses=True, increments max_uses counters for extraction modes
+    (--env / --export / --write-env) so limits apply outside HTTP serve mode.
+    """
     base_dir = env_path.parent
     env_vars = _load_env(env_path)
     permissions = _load_permissions(base_dir)
@@ -506,8 +519,11 @@ def _get_allowed_creds(env_path: Path) -> dict[str, str]:
         if k not in permissions["allowed"]:
             continue
         scope = permissions.get("scopes", {}).get(k)
-        if scope and scope.check():
-            continue  # expired or exhausted
+        if scope:
+            if scope.check():
+                continue  # expired or exhausted
+            if record_uses:
+                scope.record_use()
         result[k] = v
     return result
 
@@ -515,7 +531,7 @@ def _get_allowed_creds(env_path: Path) -> dict[str, str]:
 # ── Mode: --env CMD (launch agent with credentials as env vars) ──
 
 def run_with_env(env_path: Path, cmd: list[str]):
-    creds = _get_allowed_creds(env_path)
+    creds = _get_allowed_creds(env_path, record_uses=True)
     if not creds:
         print("\033[31m✗ No allowed credentials to inject\033[0m", file=sys.stderr)
         sys.exit(1)
@@ -533,7 +549,7 @@ def run_with_env(env_path: Path, cmd: list[str]):
 # ── Mode: --export (print shell export statements) ──
 
 def print_exports(env_path: Path):
-    creds = _get_allowed_creds(env_path)
+    creds = _get_allowed_creds(env_path, record_uses=True)
     if not creds:
         print("# No allowed credentials. Edit .check_please_agent_permissions.json", file=sys.stderr)
         sys.exit(1)
@@ -546,7 +562,7 @@ def print_exports(env_path: Path):
 
 def write_env_file(env_path: Path, output_path: Path):
     """Write allowed credentials to a file in KEY=VALUE format."""
-    creds = _get_allowed_creds(env_path)
+    creds = _get_allowed_creds(env_path, record_uses=True)
     if not creds:
         return
     output_path.write_text(
@@ -639,7 +655,7 @@ def run_mcp(env_path: Path):
             _respond(id, {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "check_please", "version": "1.1.0"}
+                "serverInfo": {"name": "check_please", "version": "1.1.1"}
             })
         elif method == "notifications/initialized":
             pass  # no response needed
@@ -679,8 +695,17 @@ def run_mcp(env_path: Path):
                     _respond(id, {"content": [{"type": "text", "text": f"Access denied: {var}"}], "isError": True})
             elif tool_name == "report_usage":
                 key = args.get("key", "")
-                tokens = int(args.get("tokens", 0))
+                try:
+                    tokens = int(args.get("tokens", 0))
+                except (TypeError, ValueError):
+                    _error(id, -32602, "tokens must be an integer")
+                    continue
+                if tokens < 0 or tokens > 1_000_000_000:
+                    _error(id, -32602, "tokens out of range")
+                    continue
                 model = args.get("model", "")
+                if not isinstance(model, str):
+                    model = str(model)
                 if key and tokens > 0:
                     tracker.record_tokens(key, tokens, model=model)
                     alerts = permissions.get("alerts", {})

@@ -9,6 +9,7 @@ import hmac as _hmac
 import io
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -31,20 +32,45 @@ _LEGACY_VAULT = DATA_DIR / ".vault.json"
 
 _current_user: str = ""  # set on login
 _session_token: str = ""  # set on login, validated on all /api/ requests
-_session_passkey: str = ""  # held in memory only while session is active (vault crypto)
+_session_passkey: str = ""  # vault encryption key held only while session is active
 _failed_attempts: dict = {}  # {username: (count, last_fail_time)}
 _MIN_PASSKEY_LEN = 8
 _MAX_BODY_BYTES = 10_485_760  # 10 MB
 _RECOVERY_GROUPS = 4
 _RECOVERY_BYTES_PER_GROUP = 4  # 4×32 bits = 128-bit recovery keys
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _valid_username(username: str) -> bool:
+    """Reject empty / path-traversing / oversized usernames."""
+    return bool(username) and bool(_USERNAME_RE.fullmatch(username))
+
+
+def _safe_under(base: Path, candidate: Path) -> bool:
+    """Return True if candidate resolves inside base (no traversal)."""
+    try:
+        base_r = base.resolve()
+        cand_r = candidate.resolve()
+        return cand_r == base_r or base_r in cand_r.parents
+    except OSError:
+        return False
+
 
 def _acct_path(username: str) -> Path:
     ACCOUNTS_DIR.mkdir(exist_ok=True)
-    return ACCOUNTS_DIR / f"{username}.json"
+    path = ACCOUNTS_DIR / f"{username}.json"
+    if not _safe_under(ACCOUNTS_DIR, path):
+        raise ValueError("invalid username path")
+    return path
+
 
 def _vault_path(username: str | None = None) -> Path:
     VAULTS_DIR.mkdir(exist_ok=True)
-    return VAULTS_DIR / f"{username or _current_user or '_default'}.json"
+    name = username or _current_user or "_default"
+    path = VAULTS_DIR / f"{name}.json"
+    if not _safe_under(VAULTS_DIR, path):
+        raise ValueError("invalid vault path")
+    return path
 
 def _list_users() -> list[str]:
     ACCOUNTS_DIR.mkdir(exist_ok=True)
@@ -178,6 +204,19 @@ def _make_recovery_key() -> str:
         secrets.token_hex(_RECOVERY_BYTES_PER_GROUP).upper()
         for _ in range(_RECOVERY_GROUPS)
     )
+
+
+def _new_vault_key() -> str:
+    """Random vault encryption key (independent of the user passkey)."""
+    return secrets.token_urlsafe(32)
+
+
+def _unwrap_vault_key(acct: dict, secret: str, field: str = "vault_key_wrap") -> str | None:
+    blob = acct.get(field)
+    if not isinstance(blob, dict):
+        return None
+    return _decrypt(blob, secret)
+
 
 def _clear_session() -> None:
     global _current_user, _session_token, _session_passkey
@@ -525,7 +564,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <a onclick="go('providers')" data-page="providers"><span class="icon">🌐</span> Providers</a>
     <a onclick="go('settings')" data-page="settings"><span class="icon">⚙️</span> Settings</a>
   </nav>
-  <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.1.0 · Local Only · Encrypted</div></div>
+  <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.1.1 · Local Only · Encrypted</div></div>
 </div>
 
 <!-- Main -->
@@ -818,6 +857,8 @@ function toast(msg,type='info'){const d=document.createElement('div');d.classNam
 
 // ── API ──
 async function api(path,opts={}){try{const r=await fetch(path,opts);const ct=r.headers.get('content-type')||'';if(ct.includes('json'))return await r.json();return{output:await r.text()};}catch(e){return{error:e.message};}}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ── Loader ──
 function setLoading(id,on,msg){const l=E(id);if(l){l.classList.toggle('on',on);if(msg){const m=l.querySelector('.msg');if(m)m.textContent=msg;}}}
@@ -834,8 +875,8 @@ function renderAuditResults(){
   else if(filter==='other')items=items.filter(k=>WARN_STATUSES.includes(k.status));
   if(sort==='status')items.sort((a,b)=>(a.status==='valid'?0:1)-(b.status==='valid'?0:1)||a.provider.localeCompare(b.provider));
   else if(sort==='provider')items.sort((a,b)=>a.provider.localeCompare(b.provider));
-  let h='';for(const k of items){const si=SI[k.status]||{i:'?',l:k.status};const fp=k.key_fingerprint||{};const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
-    h+='<div class="kc v-'+k.status+'"><label style="display:flex;align-items:center;flex-shrink:0;cursor:pointer"><input type="checkbox" class="audit-cb" data-var="'+k.env_var+'" onchange="updateAuditActions()"></label><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div><span class="ks t-'+k.status+'">'+si.l+'</span></div>';}
+  let h='';for(const k of items){const st=SI[k.status]?k.status:'network_error';const si=SI[st]||{i:'?',l:st};const fp=k.key_fingerprint||{};const fs=fp.prefix?esc(fp.prefix)+'…'+esc(fp.suffix)+' ('+esc(fp.length)+')':esc(fp.redacted||'');
+    h+='<div class="kc v-'+escAttr(st)+'"><label style="display:flex;align-items:center;flex-shrink:0;cursor:pointer"><input type="checkbox" class="audit-cb" data-var="'+escAttr(k.env_var)+'" onchange="updateAuditActions()"></label><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+esc(k.provider)+'</div><div class="ke">'+esc(k.env_var)+' · '+fs+'</div></div><span class="ks t-'+escAttr(st)+'">'+esc(si.l)+'</span></div>';}
   E('audit-results').innerHTML=h||'<div class="empty"><div class="icon">✅</div><h3>No keys found</h3><p>Upload a .env file from the Dashboard.</p></div>';
 }
 function getCheckedVars(){return[...document.querySelectorAll('.audit-cb:checked')].map(c=>c.dataset.var);}
@@ -848,15 +889,15 @@ async function runAudit(){
   document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
   const d=await api('/api/audit');
   document.querySelectorAll('.btn').forEach(b=>b.disabled=false);setLoading('audit-loader',false);
-  if(d.error){E('audit-results').innerHTML='<div class="empty"><div class="icon">⚠️</div><h3>Error</h3><p>'+d.error+'</p></div>';return;}
+  if(d.error){E('audit-results').innerHTML='<div class="empty"><div class="icon">⚠️</div><h3>Error</h3><p>'+esc(d.error)+'</p></div>';return;}
   const s=d.summary||{};E('audit-stats').style.display='block';E('audit-toolbar').style.display='block';
   E('s-total').textContent=s.total_keys||d.results?.length||0;E('s-valid').textContent=s.valid||0;E('s-failed').textContent=s.failed||0;E('s-providers').textContent=s.providers_checked||0;
   E('d-total').textContent=s.total_keys||d.results?.length||0;E('d-valid').textContent=s.valid||0;E('d-failed').textContent=s.failed||0;
   auditData=d.results||[];E('audit-sort').value='default';E('audit-filter').value='all';E('audit-check-all').checked=false;updateAuditActions();
   renderAuditResults();
   // mirror to dashboard
-  let dh='';for(const k of auditData){const si=SI[k.status]||{i:'?',l:k.status};const fp=k.key_fingerprint||{};const fs=fp.prefix?fp.prefix+'…'+fp.suffix+' ('+fp.length+')':fp.redacted||'';
-    dh+='<div class="kc v-'+k.status+'"><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+k.provider+'</div><div class="ke">'+k.env_var+' · '+fs+'</div></div><span class="ks t-'+k.status+'">'+si.l+'</span></div>';}
+  let dh='';for(const k of auditData){const st=SI[k.status]?k.status:'network_error';const si=SI[st]||{i:'?',l:st};const fp=k.key_fingerprint||{};const fs=fp.prefix?esc(fp.prefix)+'…'+esc(fp.suffix)+' ('+esc(fp.length)+')':esc(fp.redacted||'');
+    dh+='<div class="kc v-'+escAttr(st)+'"><span class="ki">'+si.i+'</span><div class="km"><div class="kp">'+esc(k.provider)+'</div><div class="ke">'+esc(k.env_var)+' · '+fs+'</div></div><span class="ks t-'+escAttr(st)+'">'+esc(si.l)+'</span></div>';}
   E('dash-results').innerHTML=dh||E('dash-results').innerHTML;
 }
 // ── Build .env ──
@@ -867,9 +908,9 @@ async function openBuildEnv(){
   // group by provider from auditData
   const groups={};for(const k of auditData){if(!vars.includes(k.env_var))continue;const p=k.provider||'Other';if(!groups[p])groups[p]=[];groups[p].push(k);}
   let h='';for(const p of Object.keys(groups).sort()){
-    h+='<div style="margin-bottom:12px"><div style="font-weight:700;font-size:.8125rem;color:var(--glow);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">'+p+'</div>';
-    for(const k of groups[p]){const si=SI[k.status]||{i:'?',l:k.status};
-      h+='<label style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--glass-border);font-size:.8125rem;cursor:pointer"><input type="checkbox" checked class="build-cb" data-var="'+k.env_var+'"><span style="font-weight:600;flex:1">'+k.env_var+'</span><span class="ks t-'+k.status+'" style="font-size:.6rem">'+si.l+'</span></label>';}
+    h+='<div style="margin-bottom:12px"><div style="font-weight:700;font-size:.8125rem;color:var(--glow);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">'+esc(p)+'</div>';
+    for(const k of groups[p]){const st=SI[k.status]?k.status:'network_error';const si=SI[st]||{i:'?',l:st};
+      h+='<label style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--glass-border);font-size:.8125rem;cursor:pointer"><input type="checkbox" checked class="build-cb" data-var="'+escAttr(k.env_var)+'"><span style="font-weight:600;flex:1">'+esc(k.env_var)+'</span><span class="ks t-'+escAttr(st)+'" style="font-size:.6rem">'+esc(si.l)+'</span></label>';}
     h+='</div>';}
   E('build-env-list').innerHTML=h;E('build-env-preview').style.display='none';
   E('modal-build-env').classList.add('open');
@@ -929,9 +970,9 @@ function printEmergencySheet(){
   const w=window.open('','_blank','width=700,height=900');
   w.document.write('<html><head><title>Emergency Sheet</title><style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;color:#111}h1{font-size:24px;border-bottom:3px solid #4f46e5;padding-bottom:12px}h2{font-size:16px;margin-top:28px;color:#4f46e5}.box{border:2px dashed #999;border-radius:8px;padding:16px;margin:12px 0;font-family:monospace;font-size:18px;letter-spacing:2px;text-align:center;min-height:28px}.info{font-size:13px;color:#555;line-height:1.7;margin:12px 0}.warn{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px;font-size:13px;margin:20px 0}.footer{margin-top:40px;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:12px}@media print{body{margin:20px}}</style></head><body>');
   w.document.write('<h1>🔑 Check Please — Emergency Recovery Sheet</h1>');
-  w.document.write('<div class="info"><strong>Username:</strong> '+user+'<br><strong>Account Created:</strong> '+date+'<br><strong>Printed:</strong> '+new Date().toLocaleString()+'</div>');
+  w.document.write('<div class="info"><strong>Username:</strong> '+esc(user)+'<br><strong>Account Created:</strong> '+esc(date)+'<br><strong>Printed:</strong> '+esc(new Date().toLocaleString())+'</div>');
   w.document.write('<h2>Recovery Key</h2><div class="box" id="rk">Your recovery key was shown when you created your account.<br>Write it here:</div>');
-  w.document.write('<h2>Instructions</h2><div class="info"><ol><li>Open Check Please and click <strong>Forgot password?</strong></li><li>Enter the recovery key above</li><li>Set a new password</li><li>Your vault will be unlocked with all data intact</li></ol></div>');
+  w.document.write('<h2>Instructions</h2><div class="info"><ol><li>Open Check Please and click <strong>Forgot password?</strong></li><li>Enter the recovery key above</li><li>Set a new password</li><li>Your vault key is unwrapped via the recovery wrap — vault data stays intact on accounts created with v1.1+</li></ol></div>');
   w.document.write('<div class="warn"><strong>⚠️ Keep this sheet in a safe place</strong> (safe, safety deposit box, etc). Anyone with this recovery key can reset your password and access your vault.</div>');
   w.document.write('<h2>If Recovery Key Is Lost</h2><div class="info">If you lose both your password and recovery key, import an <strong>encrypted backup</strong> file (.cpbackup). If no backup exists, the vault data cannot be recovered — this is by design for your security.</div>');
   w.document.write('<div class="footer">Generated by Check Please · github.com/Senpai-Sama7/check-please · This document contains sensitive recovery information.</div>');
@@ -960,7 +1001,7 @@ async function scanEnv(){
   const keys=Object.keys(scannedVars);
   if(!keys.length){toast('No API keys found in shell config files','info');return;}
   E('scan-summary').textContent='Found '+keys.length+' credential(s) in your shell config files. Select which to import:';
-  let h='';for(const k of keys){h+='<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--glass-border);font-size:.8125rem;cursor:pointer"><input type="checkbox" checked data-key="'+k+'"><span style="font-weight:600">'+k+'</span><span style="color:var(--text3);font-family:var(--font-mono);font-size:.7rem">'+scannedVars[k].substring(0,8)+'…</span></label>';}
+  let h='';for(const k of keys){h+='<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--glass-border);font-size:.8125rem;cursor:pointer"><input type="checkbox" checked data-key="'+escAttr(k)+'"><span style="font-weight:600">'+esc(k)+'</span><span style="color:var(--text3);font-family:var(--font-mono);font-size:.7rem">'+esc((scannedVars[k]||'').substring(0,8))+'…</span></label>';}
   E('scan-list').innerHTML=h;E('modal-scan').classList.add('open');
 }
 async function importScanned(){
@@ -988,7 +1029,6 @@ function renderVault(){
   h+='</tbody></table></div>';E('vault-list').innerHTML=h;
 }
 function pwStrength(pw){const l=pw.length,u=/[A-Z]/.test(pw),lo=/[a-z]/.test(pw),d=/\d/.test(pw),s=/[^A-Za-z0-9]/.test(pw);const score=[l>=8,l>=12,l>=16,u,lo,d,s].filter(Boolean).length;const labels=['Very Weak','Weak','Weak','Fair','Good','Strong','Very Strong','Excellent'];return{score,label:labels[Math.min(score,7)]};}
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function toggleVaultPw(id){const el=E('pw-'+id);if(!el)return;const entry=vault.find(e=>e.id===id);if(!entry)return;el.textContent=el.textContent==='••••••••'?entry.password:'••••••••';}
 function copyVaultPw(id){const entry=vault.find(e=>e.id===id);if(!entry)return;copyText(entry.password);}
 function copyText(text){navigator.clipboard.writeText(text).then(()=>toast('Copied','success')).catch(()=>toast('Copy failed','error'));}
@@ -1043,7 +1083,7 @@ async function unlock(){const pw=E('login-pass').value,user=getLoginUser();if(!u
 async function changePasskey(){const old=E('set-old-pass').value,nw=E('set-new-pass').value;if(!old||!nw){toast('Fill in both fields','error');return;}if(nw.length<8){toast('Min 8 characters','error');return;}const d=await api('/api/account/change-passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_passkey:old,new_passkey:nw})});if(d.error){toast(d.error,'error');return;}toast('Password updated','success');E('set-old-pass').value='';E('set-new-pass').value='';}
 function showForgot(){E('lock-login').style.display='none';E('lock-forgot').style.display='block';E('forgot-err').textContent='';}
 function hideForgot(){E('lock-forgot').style.display='none';E('lock-login').style.display='block';}
-async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=getLoginUser();if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<8){E('forgot-err').textContent='New password must be at least 8 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}toast('Password reset successfully','success');hideForgot();}
+async function recoverAccount(){const key=E('forgot-key').value.trim(),pw=E('forgot-new-pass').value,user=getLoginUser();if(!key){E('forgot-err').textContent='Enter your recovery key.';return;}if(!pw||pw.length<8){E('forgot-err').textContent='New password must be at least 8 characters.';return;}const d=await api('/api/account/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,recovery_key:key,new_passkey:pw})});if(d.error){E('forgot-err').textContent=d.error;return;}if(d.vault_preserved===false){toast(d.warning||'Password reset — vault may need a backup restore','info');}else{toast('Password reset successfully','success');}hideForgot();}
 async function nukeAccount(){const pw=prompt('Enter your password to permanently delete your account:');if(!pw)return;const d=await api('/api/account/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passkey:pw})});if(d.error){toast(d.error,'error');return;}toast('Account erased. Starting fresh.','info');location.reload();}
 
 async function loadAccountSettings(){const d=await api('/api/account/status');if(d.name)E('set-name').value=d.name;if(d.created)E('set-created').value=new Date(d.created).toLocaleString();
@@ -1055,7 +1095,7 @@ async function loadAccountSettings(){const d=await api('/api/account/status');if
 function bufToB64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)));}
 function b64ToBuf(b64){return Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;}
 async function registerBiometric(){if(!window.PublicKeyCredential||!navigator.credentials?.create){E('bio-unsupported').style.display='block';toast('Biometrics not available — open in a browser instead','error');return;}try{const ch=await api('/api/webauthn/register-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.create({publicKey:{challenge:b64ToBuf(ch.challenge),rp:{name:'Check Please',id:'localhost'},user:{id:b64ToBuf(ch.user_id),name:ch.user_name||'user',displayName:ch.user_name||'User'},pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],authenticatorSelection:{userVerification:'required',residentKey:'preferred'},timeout:60000}});const d=await api('/api/webauthn/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(d.error){toast(d.error,'error');return;}toast('Biometric registered!','success');loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
-async function biometricAuth(){if(!window.PublicKeyCredential){window.open('http://localhost:8457','_blank');toast('Opening browser for biometric auth','info');return;}try{const ch=await api('/api/webauthn/auth-challenge');if(ch.error){toast(ch.error,'error');return;}const cred=await navigator.credentials.get({publicKey:{challenge:b64ToBuf(ch.challenge),allowCredentials:ch.credentials.map(c=>({id:b64ToBuf(c),type:'public-key',transports:['internal','hybrid','ble']})),userVerification:'required',timeout:60000}});const d=await api('/api/webauthn/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential_id:bufToB64(cred.rawId)})});if(!d.ok){toast('Verification failed','error');return;}E('lock-screen').classList.add('hidden');loadVault();loadAccountSettings();}catch(e){if(e.name==='NotAllowedError')toast('Cancelled','info');else toast(e.message,'error');}}
+async function biometricAuth(){toast('Biometric-only unlock is disabled until full WebAuthn assertion verification ships. Enter your password.','info');E('login-pass').focus();}
 async function removeBiometric(){if(!confirm('Remove biometric unlock?'))return;await api('/api/webauthn/remove',{method:'POST'});toast('Removed','success');loadAccountSettings();}
 
 // ── Tour ──
@@ -1301,8 +1341,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             username = data.get("name", "").strip()
-            if not username:
-                self._json({"error": "Username required"}, 400)
+            if not _valid_username(username):
+                self._json({"error": "Username must be 1–64 chars: letters, digits, _ . -"}, 400)
                 return
             if _acct_path(username).is_file():
                 self._json({"error": "Username already taken"}, 400)
@@ -1312,9 +1352,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"Password must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
             _current_user = username
-            _session_passkey = passkey
-            check_blob = _encrypt("check_please_ok", passkey)
             recovery_key = _make_recovery_key()
+            vault_key = _new_vault_key()
+            _session_passkey = vault_key
+            check_blob = _encrypt("check_please_ok", passkey)
             recovery_salt = secrets.token_bytes(16)
             recovery_hash = hashlib.pbkdf2_hmac("sha256", recovery_key.encode(), recovery_salt, 200_000).hex()
             _save_account({
@@ -1323,6 +1364,9 @@ class Handler(BaseHTTPRequestHandler):
                 "check": check_blob,
                 "recovery_hash": recovery_hash,
                 "recovery_salt": recovery_salt.hex(),
+                # Vault key wrapped by passkey AND recovery key so recovery preserves vault
+                "vault_key_wrap": _encrypt(vault_key, passkey),
+                "vault_key_recovery_wrap": _encrypt(vault_key, recovery_key),
             })
             # Ensure new accounts start with an encrypted empty vault
             _save_vault([])
@@ -1335,6 +1379,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             username = data.get("username", "") or (_list_users() or [""])[0]
+            if not _valid_username(username):
+                self._json({"ok": False, "error": "Invalid username"}, 400)
+                return
             wait = _check_rate_limit(username)
             if wait > 0:
                 self._json({"ok": False, "error": f"Too many attempts. Try again in {int(wait)+1}s."}, 429)
@@ -1343,17 +1390,31 @@ class Handler(BaseHTTPRequestHandler):
             ok = _verify_passkey(passkey, username)
             if ok:
                 _current_user = username
-                _session_passkey = passkey
                 _clear_fails(username)
-                # Migrate legacy plaintext vault → encrypted envelope on first unlock
-                vf = _vault_path(username)
-                if vf.is_file():
-                    try:
-                        raw = json.loads(vf.read_text())
-                        if isinstance(raw, list):
-                            _save_vault(raw)
-                    except Exception:
-                        pass
+                acct = _load_account(username) or {}
+                vault_key = _unwrap_vault_key(acct, passkey)
+                if vault_key:
+                    _session_passkey = vault_key
+                else:
+                    # Legacy account: passkey was the vault key — migrate to wrapped vault key
+                    _session_passkey = passkey
+                    vf = _vault_path(username)
+                    entries: list[dict] = []
+                    if vf.is_file():
+                        try:
+                            raw = json.loads(vf.read_text())
+                            if isinstance(raw, list):
+                                entries = raw
+                            elif isinstance(raw, dict) and "encrypted" in raw:
+                                entries = _load_vault()
+                        except Exception:
+                            entries = []
+                    vault_key = _new_vault_key()
+                    acct["vault_key_wrap"] = _encrypt(vault_key, passkey)
+                    # No recovery wrap available without the recovery key (user must re-save via recover)
+                    _save_account(acct, username)
+                    _session_passkey = vault_key
+                    _save_vault(entries)
                 self._set_session_cookie()
             else:
                 _record_fail(username)
@@ -1376,13 +1437,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(new_passkey) < _MIN_PASSKEY_LEN:
                 self._json({"error": f"New passkey must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
-            # Re-encrypt vault under the new passkey
-            entries = _load_vault()
             acct = _load_account() or {}
+            vault_key = _unwrap_vault_key(acct, old_passkey) or _session_passkey or old_passkey
             acct["check"] = _encrypt("check_please_ok", new_passkey)
-            _session_passkey = new_passkey
+            acct["vault_key_wrap"] = _encrypt(vault_key, new_passkey)
+            _session_passkey = vault_key
             _save_account(acct)
-            _save_vault(entries)
+            # Vault ciphertext stays as-is — same vault_key, only the wrap rotates
             self._json({"ok": True})
         elif path == "/api/account/recover":
             try:
@@ -1391,6 +1452,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             username = data.get("username", "") or (_list_users() or [""])[0]
+            if not _valid_username(username):
+                self._json({"error": "Invalid username"}, 400)
+                return
             acct = _load_account(username)
             if not acct:
                 self._json({"error": "No account exists"}, 400)
@@ -1408,9 +1472,23 @@ class Handler(BaseHTTPRequestHandler):
             if len(new_pw) < _MIN_PASSKEY_LEN:
                 self._json({"error": f"Password must be at least {_MIN_PASSKEY_LEN} characters"}, 400)
                 return
+            vault_key = _unwrap_vault_key(acct, key, "vault_key_recovery_wrap")
             acct["check"] = _encrypt("check_please_ok", new_pw)
-            _save_account(acct, username)
-            self._json({"ok": True})
+            if vault_key:
+                acct["vault_key_wrap"] = _encrypt(vault_key, new_pw)
+                # Refresh recovery wrap under the same recovery key (new salt/nonce)
+                acct["vault_key_recovery_wrap"] = _encrypt(vault_key, key)
+                _save_account(acct, username)
+                self._json({"ok": True, "vault_preserved": True})
+            else:
+                # Legacy account without recovery wrap — password resets, vault stays undecryptable
+                _save_account(acct, username)
+                self._json({
+                    "ok": True,
+                    "vault_preserved": False,
+                    "warning": "Password reset, but this account has no recovery vault-key wrap. "
+                               "Restore vault data from an encrypted .cpbackup if available.",
+                })
         elif path == "/api/account/nuke":
             try:
                 data = json.loads(body)
@@ -1479,11 +1557,19 @@ class Handler(BaseHTTPRequestHandler):
             # Restore account
             acct = payload.get("account", {})
             if acct and acct.get("name"):
+                if not _valid_username(acct["name"]):
+                    self._json({"error": "Backup contains invalid username"}, 400)
+                    return
                 _current_user = acct["name"]
-                _session_passkey = passkey
+                vault_key = _unwrap_vault_key(acct, passkey)
+                if not vault_key:
+                    # Legacy backup: passkey was vault key — create wraps
+                    vault_key = _new_vault_key()
+                    acct["vault_key_wrap"] = _encrypt(vault_key, passkey)
+                _session_passkey = vault_key
                 _save_account(acct)
                 self._set_session_cookie()
-            # Restore vault (re-encrypted under current session passkey)
+            # Restore vault (re-encrypted under current session vault key)
             vault = payload.get("vault", [])
             if isinstance(vault, list):
                 _save_vault(vault)
@@ -1509,24 +1595,22 @@ class Handler(BaseHTTPRequestHandler):
             _save_account(acct)
             self._json({"ok": True})
         elif path == "/api/webauthn/auth":
+            # Credential-ID-only checks are not WebAuthn. Do not mint a session.
+            # Full assertion verification (signature / clientDataJSON / origin / RP ID)
+            # is required before biometric unlock can be trusted.
             try:
-                data = json.loads(body)
+                data = json.loads(body) if body else {}
             except Exception:
-                self._json({"error": "Invalid JSON"}, 400)
-                return
+                data = {}
             acct = _load_account()
-            if not acct or not acct.get("_webauthn_challenge"):
-                self._json({"ok": False})
-                return
-            acct.pop("_webauthn_challenge", None)
-            _save_account(acct)
-            cred_id = data.get("credential_id", "")
-            known_ids = [c["id"] for c in acct.get("webauthn_credentials", [])]
-            ok = cred_id in known_ids
-            if ok:
-                _current_user = acct.get("name", "")
-                self._set_session_cookie()
-            self._json({"ok": ok})
+            if acct and acct.get("_webauthn_challenge"):
+                acct.pop("_webauthn_challenge", None)
+                _save_account(acct)
+            self._json({
+                "ok": False,
+                "requires_password": True,
+                "error": "Biometric-only session minting is disabled. Use password unlock.",
+            })
         elif path == "/api/webauthn/remove":
             acct = _load_account()
             if acct:

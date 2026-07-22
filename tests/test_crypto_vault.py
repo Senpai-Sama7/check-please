@@ -103,3 +103,61 @@ class TestRecoveryKey:
 class TestPasskeyMinimum:
     def test_min_length_constant(self):
         assert sw._MIN_PASSKEY_LEN >= 8
+
+
+class TestUsernameValidation:
+    def test_rejects_path_traversal(self):
+        assert not sw._valid_username("../etc/passwd")
+        assert not sw._valid_username("a/b")
+        assert not sw._valid_username("a\\b")
+        assert not sw._valid_username("")
+        assert not sw._valid_username("x" * 65)
+
+    def test_accepts_safe_names(self):
+        assert sw._valid_username("alice")
+        assert sw._valid_username("bob_1")
+        assert sw._valid_username("user.name")
+
+
+class TestVaultKeyWrap:
+    def test_recovery_preserves_vault(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(sw, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(sw, "ACCOUNTS_DIR", tmp_path / ".accounts")
+        monkeypatch.setattr(sw, "VAULTS_DIR", tmp_path / ".vaults")
+        sw._clear_session()
+
+        username = "wrapuser"
+        passkey = "password123"
+        recovery = sw._make_recovery_key()
+        vault_key = sw._new_vault_key()
+        sw._current_user = username
+        sw._session_passkey = vault_key
+        sw._save_account({
+            "name": username,
+            "check": sw._encrypt("check_please_ok", passkey),
+            "recovery_hash": __import__("hashlib").pbkdf2_hmac(
+                "sha256", recovery.encode(), b"\x02" * 16, 200_000
+            ).hex(),
+            "recovery_salt": (b"\x02" * 16).hex(),
+            "vault_key_wrap": sw._encrypt(vault_key, passkey),
+            "vault_key_recovery_wrap": sw._encrypt(vault_key, recovery),
+        })
+        entries = [{"id": "1", "site": "ex.com", "password": "s3cret"}]
+        sw._save_vault(entries)
+
+        # Simulate recovery: unwrap with recovery key, re-wrap under new password
+        acct = sw._load_account(username)
+        assert acct is not None
+        unwrapped = sw._unwrap_vault_key(acct, recovery, "vault_key_recovery_wrap")
+        assert unwrapped == vault_key
+        new_pw = "newpassword99"
+        acct["check"] = sw._encrypt("check_please_ok", new_pw)
+        acct["vault_key_wrap"] = sw._encrypt(unwrapped, new_pw)
+        sw._save_account(acct, username)
+
+        # Login with new password unlocks same vault
+        sw._session_passkey = ""
+        assert sw._verify_passkey(new_pw, username)
+        vk2 = sw._unwrap_vault_key(sw._load_account(username) or {}, new_pw)
+        sw._session_passkey = vk2 or ""
+        assert sw._load_vault() == entries

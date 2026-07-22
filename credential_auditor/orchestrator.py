@@ -83,19 +83,23 @@ async def audit(
 
     env_vars = dotenv_values(env_path)
 
-    # Expose non-secret companion vars (e.g. TWILIO_ACCOUNT_SID) so providers can read them
-    # Track injected vars for cleanup
-    _injected_env: list[str] = []
+    # Expose non-secret companion vars (e.g. TWILIO_ACCOUNT_SID) so providers can read them.
+    # Save prior values so we can restore (never permanently clobber the process env).
+    _env_backup: dict[str, str | None] = {}
+
+    def _inject(var: str, value: str) -> None:
+        if var not in _env_backup:
+            _env_backup[var] = os.environ.get(var)
+        os.environ[var] = value
+
     for var, value in env_vars.items():
         if var and value and not any(s in var.upper() for s in ("SECRET", "TOKEN", "PASSWORD", "KEY", "AUTH")):
             if var not in os.environ:
-                os.environ[var] = value
-                _injected_env.append(var)
+                _inject(var, value)
     for var in ("TWILIO_ACCOUNT_SID",):
         val = env_vars.get(var)
         if val:
-            os.environ[var] = val
-            _injected_env.append(var)
+            _inject(var, val)
 
     # Match env vars to providers — with auto-detection fallback
     tasks: list[tuple[str, str, Provider]] = []
@@ -123,118 +127,126 @@ async def audit(
         console.print("[yellow]No matching credentials found for enabled providers.[/yellow]")
         alog.log("audit_end", detail="no credentials found")
         alog.flush()
+        for var, prior in _env_backup.items():
+            if prior is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = prior
         r = AuditResults()
         r.summary = AuditSummary(0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
         return r
 
-    # Check cache first, separate cached vs uncached
-    cached_results: list[KeyResult] = []
-    uncached_tasks: list[tuple[str, str, Provider]] = []
-    for var, key, inst in tasks:
-        hit = _cache.get(inst.name, key)
-        if hit:
-            if var in auto_detected_vars:
-                hit = replace(hit, auto_detected=True)
-            cached_results.append(hit)
-            alog.log("cache_hit", provider=inst.name, env_var=var, status=hit.status)
-        else:
-            uncached_tasks.append((var, key, inst))
-
-    # Failed-provider tracking — bail mid-run so remaining keys for that provider are skipped
-    fail_counts: dict[str, int] = {}
-    skipped_providers: set[str] = set()
-    bail_lock = asyncio.Lock()
-
-    sem = asyncio.Semaphore(_CONCURRENCY_LIMIT)
-
-    async def _throttled_check(inst: Provider, var: str, key: str, client: httpx.AsyncClient) -> KeyResult:
-        async with sem:
-            # Skip if this provider already bailed (checked under lock for consistency)
-            async with bail_lock:
-                if inst.name in skipped_providers:
-                    return KeyResult(
-                        provider=inst.name, env_var=var,
-                        key_fingerprint=KeyFingerprint.from_key(key),
-                        status="auth_failed",
-                        error_detail=f"skipped: provider bailed after {_FAIL_BAIL_THRESHOLD} consecutive failures",
-                    )
-            result = await inst.check_key(var, key, client)
-            if result.status in FAILING_STATUSES:
-                async with bail_lock:
-                    fail_counts[inst.name] = fail_counts.get(inst.name, 0) + 1
-                    if fail_counts[inst.name] >= _FAIL_BAIL_THRESHOLD:
-                        if inst.name not in skipped_providers:
-                            skipped_providers.add(inst.name)
-                            alog.log(
-                                "provider_bail", provider=inst.name,
-                                detail=f"skipped after {_FAIL_BAIL_THRESHOLD} consecutive failures",
-                            )
+    try:
+        # Check cache first, separate cached vs uncached
+        cached_results: list[KeyResult] = []
+        uncached_tasks: list[tuple[str, str, Provider]] = []
+        for var, key, inst in tasks:
+            hit = _cache.get(inst.name, key)
+            if hit:
+                hit = replace(hit, env_var=var, auto_detected=var in auto_detected_vars)
+                cached_results.append(hit)
+                alog.log("cache_hit", provider=inst.name, env_var=var, status=hit.status)
             else:
+                uncached_tasks.append((var, key, inst))
+
+        # Failed-provider tracking — bail mid-run so remaining keys for that provider are skipped
+        fail_counts: dict[str, int] = {}
+        skipped_providers: set[str] = set()
+        bail_lock = asyncio.Lock()
+
+        sem = asyncio.Semaphore(_CONCURRENCY_LIMIT)
+
+        async def _throttled_check(inst: Provider, var: str, key: str, client: httpx.AsyncClient) -> KeyResult:
+            async with sem:
+                # Skip if this provider already bailed (checked under lock for consistency)
                 async with bail_lock:
-                    fail_counts[inst.name] = 0
-            return result
+                    if inst.name in skipped_providers:
+                        return KeyResult(
+                            provider=inst.name, env_var=var,
+                            key_fingerprint=KeyFingerprint.from_key(key),
+                            status="auth_failed",
+                            error_detail=f"skipped: provider bailed after {_FAIL_BAIL_THRESHOLD} consecutive failures",
+                        )
+                result = await inst.check_key(var, key, client)
+                if result.status in FAILING_STATUSES:
+                    async with bail_lock:
+                        fail_counts[inst.name] = fail_counts.get(inst.name, 0) + 1
+                        if fail_counts[inst.name] >= _FAIL_BAIL_THRESHOLD:
+                            if inst.name not in skipped_providers:
+                                skipped_providers.add(inst.name)
+                                alog.log(
+                                    "provider_bail", provider=inst.name,
+                                    detail=f"skipped after {_FAIL_BAIL_THRESHOLD} consecutive failures",
+                                )
+                else:
+                    async with bail_lock:
+                        fail_counts[inst.name] = 0
+                return result
 
-    async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
-        coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
-        raw: list[KeyResult | BaseException] = await asyncio.gather(*coros, return_exceptions=True)
+        async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
+            coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
+            raw: list[KeyResult | BaseException] = await asyncio.gather(*coros, return_exceptions=True)
 
-    results: list[KeyResult] = list(cached_results)
-    for i, raw_result in enumerate(raw):
-        var, key, inst = uncached_tasks[i]
-        result: KeyResult
-        if isinstance(raw_result, BaseException):
-            result = KeyResult(
-                provider=inst.name, env_var=var,
-                key_fingerprint=KeyFingerprint.from_key(key),
-                status="network_error",
-                error_detail=f"{type(raw_result).__name__}: {raw_result}",
-            )
-        else:
-            assert isinstance(raw_result, KeyResult)
-            result = raw_result
+        results: list[KeyResult] = list(cached_results)
+        for i, raw_result in enumerate(raw):
+            var, key, inst = uncached_tasks[i]
+            result: KeyResult
+            if isinstance(raw_result, BaseException):
+                result = KeyResult(
+                    provider=inst.name, env_var=var,
+                    key_fingerprint=KeyFingerprint.from_key(key),
+                    status="network_error",
+                    error_detail=f"{type(raw_result).__name__}: {raw_result}",
+                )
+            else:
+                assert isinstance(raw_result, KeyResult)
+                result = raw_result
 
-        # Only cache real network results (not bail-skips)
-        if not (result.status == "auth_failed" and result.error_detail and result.error_detail.startswith("skipped:")):
-            _cache.put(inst.name, key, result)
+            # Only cache real network results (not bail-skips)
+            if not (result.status == "auth_failed" and result.error_detail and result.error_detail.startswith("skipped:")):
+                _cache.put(inst.name, key, result)
 
-        if var in auto_detected_vars:
-            result = replace(result, auto_detected=True)
-        alog.log("validate", provider=result.provider, env_var=result.env_var,
-                 status=result.status, latency_ms=result.latency_ms)
-        results.append(result)
+            if var in auto_detected_vars:
+                result = replace(result, auto_detected=True)
+            alog.log("validate", provider=result.provider, env_var=result.env_var,
+                     status=result.status, latency_ms=result.latency_ms)
+            results.append(result)
 
-    results.sort(key=lambda r: (r.provider, r.env_var))
+        results.sort(key=lambda r: (r.provider, r.env_var))
 
-    # Build summary
-    valid_count = sum(1 for r in results if r.status == "valid")
-    fail_count = sum(1 for r in results if r.status in FAILING_STATUSES)
-    error_count = sum(1 for r in results if r.status == "network_error")
-    total_latency = sum(r.latency_ms for r in results)
+        # Build summary
+        valid_count = sum(1 for r in results if r.status == "valid")
+        fail_count = sum(1 for r in results if r.status in FAILING_STATUSES)
+        error_count = sum(1 for r in results if r.status == "network_error")
+        total_latency = sum(r.latency_ms for r in results)
 
-    summary = AuditSummary(
-        total_keys=len(results),
-        valid=valid_count,
-        failed=fail_count,
-        errors=error_count,
-        providers_checked=len(active) - len(skipped_providers),
-        providers_skipped=len(skipped_providers),
-        cache_hits=_cache.stats.hits,
-        cache_misses=_cache.stats.misses,
-        total_latency_ms=total_latency,
-        auto_detected=auto_detected_count,
-    )
+        summary = AuditSummary(
+            total_keys=len(results),
+            valid=valid_count,
+            failed=fail_count,
+            errors=error_count,
+            providers_checked=len(active) - len(skipped_providers),
+            providers_skipped=len(skipped_providers),
+            cache_hits=_cache.stats.hits,
+            cache_misses=_cache.stats.misses,
+            total_latency_ms=total_latency,
+            auto_detected=auto_detected_count,
+        )
 
-    alog.log("audit_end", detail=f"{len(results)} keys, {valid_count} valid, "
-             f"{len(skipped_providers)} providers bailed")
-    alog.flush()
+        alog.log("audit_end", detail=f"{len(results)} keys, {valid_count} valid, "
+                 f"{len(skipped_providers)} providers bailed")
+        alog.flush()
 
-    # Clean up injected env vars to prevent pollution
-    for var in _injected_env:
-        os.environ.pop(var, None)
-
-    out = AuditResults(results)
-    out.summary = summary
-    return out
+        out = AuditResults(results)
+        out.summary = summary
+        return out
+    finally:
+        # Restore process env to pre-audit state
+        for var, prior in _env_backup.items():
+            if prior is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = prior
 
 
 def get_cache() -> ValidationCache:

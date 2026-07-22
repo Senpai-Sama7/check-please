@@ -8,7 +8,7 @@
 <!-- Badges row 1 -->
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-e94560?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-86%2F86_passing-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-93%2F93_passing-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#)
 [![Self-Test](https://img.shields.io/badge/invariants-7%2F7_verified-00c853?style=for-the-badge&logo=checkmarx&logoColor=white)](#)
 [![Security Audit](https://img.shields.io/badge/hostile_audit-REMEDIATED-00c853?style=for-the-badge&logo=hackthebox&logoColor=white)](HOSTILE_AUDIT_REPORT.md)
 
