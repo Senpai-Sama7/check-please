@@ -37,12 +37,19 @@ MAX_BODY_BYTES = 10_485_760  # 10 MB
 
 
 def _parse_duration(s: str) -> float:
-    """Parse '30m', '2h', '1d' to seconds. Returns 0 on failure."""
+    """Parse '30m', '2h', '1d' to seconds. Returns 0 on failure.
+    Also accepts plain integer/float seconds (e.g. '3600')."""
     if not s:
         return 0
+    s = str(s).strip()
     units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    # Plain number = seconds
     try:
-        return float(s[:-1]) * units[s[-1]]
+        return float(s)
+    except ValueError:
+        pass
+    try:
+        return float(s[:-1]) * units[s[-1].lower()]
     except (KeyError, ValueError, IndexError):
         return 0
 
@@ -67,13 +74,23 @@ class _UsageTracker:
         # {(key, agent): total_tokens}
         self._tokens_by_agent: dict[tuple[str, str], int] = {}
 
+    def _cleanup_if_empty(self, key: str) -> None:
+        """Remove empty deque to prevent unbounded growth (caller holds lock)."""
+        dq = self._rpm_windows.get(key)
+        if dq is not None and len(dq) == 0:
+            del self._rpm_windows[key]
+
     def record_request(self, key: str, agent: str = "") -> None:
         now = time.time()
         with self._lock:
             self._requests[key] = self._requests.get(key, 0) + 1
             if key not in self._rpm_windows:
                 self._rpm_windows[key] = deque()
-            self._rpm_windows[key].append(now)
+            dq = self._rpm_windows[key]
+            # Evict stale entries proactively on write path
+            while dq and dq[0] < now - 60:
+                dq.popleft()
+            dq.append(now)
 
     def check_rpm(self, key: str, limit: int) -> str | None:
         """Return error string if over RPM limit, else None."""
@@ -115,6 +132,10 @@ class _UsageTracker:
             return 0
         while dq and dq[0] < now - 60:
             dq.popleft()
+        if len(dq) == 0:
+            # Clean up empty deques to prevent memory leak
+            del self._rpm_windows[key]
+            return 0
         return len(dq)
 
     def get_rpm(self, key: str) -> int:
@@ -140,6 +161,22 @@ def _send_alert(msg: str, webhook: str = "", key: str = "",
     """Print alert to stderr; optionally POST to webhook."""
     print(f"\033[33m⚠ ALERT: {msg}\033[0m", file=sys.stderr)
     if webhook:
+        # Basic SSRF guard: only allow https:// and known webhook domains
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(webhook)
+            if parsed.scheme not in ("https",):
+                print("⚠ Webhook rejected: must use https", file=sys.stderr)
+                return
+            # Optional allowlist: if you need internal webhooks, extend this
+            # For now, allow any https but block localhost/private ranges via explicit check
+            host = parsed.hostname or ""
+            if host in ("localhost", "127.0.0.1", "::1") or host.startswith("10.") or host.startswith("192.168."):
+                print(f"⚠ Webhook rejected: private host {host}", file=sys.stderr)
+                return
+        except Exception:
+            return
         payload = json.dumps({"text": f"🔔 check_please: {msg}",
                               "key": key, "agent": agent}).encode()
         try:
@@ -151,8 +188,9 @@ def _send_alert(msg: str, webhook: str = "", key: str = "",
 
 
 class _CredScope:
-    """Per-credential access scope."""
-    __slots__ = ("max_uses", "expires_at", "uses", "rpm_limit")
+    """Per-credential access scope (thread-safe for ThreadingHTTPServer)."""
+
+    __slots__ = ("max_uses", "expires_at", "uses", "rpm_limit", "_lock")
 
     def __init__(self, max_uses: int = 0, expires: str = "", rpm_limit: int = 0):
         self.max_uses = max_uses  # 0 = unlimited
@@ -160,17 +198,30 @@ class _CredScope:
         self.expires_at = time.time() + ttl if ttl > 0 else 0  # 0 = never
         self.uses = 0
         self.rpm_limit = rpm_limit  # 0 = unlimited
+        self._lock = threading.Lock()
 
     def check(self) -> str | None:
         """Return error string if access denied, else None."""
-        if self.expires_at and time.time() > self.expires_at:
-            return "credential access expired"
-        if self.max_uses and self.uses >= self.max_uses:
-            return f"max uses ({self.max_uses}) exhausted"
-        return None
+        with self._lock:
+            if self.expires_at and time.time() > self.expires_at:
+                return "credential access expired"
+            if self.max_uses and self.uses >= self.max_uses:
+                return f"max uses ({self.max_uses}) exhausted"
+            return None
 
     def record_use(self):
-        self.uses += 1
+        with self._lock:
+            self.uses += 1
+
+    def check_and_record(self) -> str | None:
+        """Atomic check+record to prevent race under ThreadingHTTPServer."""
+        with self._lock:
+            if self.expires_at and time.time() > self.expires_at:
+                return "credential access expired"
+            if self.max_uses and self.uses >= self.max_uses:
+                return f"max uses ({self.max_uses}) exhausted"
+            self.uses += 1
+            return None
 
 
 def _load_env(env_path: Path) -> dict[str, str]:
@@ -233,6 +284,13 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass  # suppress default stderr logging
+
+        def _sec_headers(self) -> None:
+            """Send standard security headers on all responses."""
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
 
         def _check_auth(self) -> Optional[str]:
             if token_expires and time.time() > token_expires:
@@ -320,6 +378,21 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                 else:
                     self._json_response(200, {"usage": {}})
 
+            elif self.path == "/metrics":
+                # Prometheus-compatible text exposition
+                try:
+                    from credential_auditor.metrics import render_metrics
+
+                    body = render_metrics().encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; version=0.0.4")
+                    self.send_header("Content-Length", str(len(body)))
+                    self._sec_headers()
+                    self.end_headers()
+                    self.wfile.write(body)
+                except ImportError:
+                    self._json_response(503, {"error": "metrics module not available"})
+
             elif self.path.startswith("/usage/"):
                 key = self.path[len("/usage/"):]
                 if tracker:
@@ -398,15 +471,10 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                 self._json_response(404, {"error": f"{var_name} not found in .env"})
                 return
 
-            # Enforce scoped limits
+            # Enforce scoped limits (atomic check+record to avoid race)
             scope = permissions.get("scopes", {}).get(var_name)
             if scope:
-                err = scope.check()
-                if err:
-                    _log_access(base_dir, "scope_denied", env_var=var_name, agent=agent, granted=False)
-                    self._json_response(403, {"error": err})
-                    return
-                # RPM check
+                # RPM check first (does not mutate scope)
                 if tracker and scope.rpm_limit:
                     rpm_err = tracker.check_rpm(var_name, scope.rpm_limit)
                     if rpm_err:
@@ -415,7 +483,17 @@ def _make_handler(token: str, env_vars: dict[str, str], permissions: dict, base_
                                     key=var_name, agent=agent)
                         self._json_response(429, {"error": rpm_err})
                         return
-                scope.record_use()
+                # Use atomic check_and_record if available, else fallback
+                if hasattr(scope, "check_and_record"):
+                    err = scope.check_and_record()
+                else:
+                    err = scope.check()
+                    if not err:
+                        scope.record_use()
+                if err:
+                    _log_access(base_dir, "scope_denied", env_var=var_name, agent=agent, granted=False)
+                    self._json_response(403, {"error": err})
+                    return
 
             # Track request
             if tracker:
@@ -483,7 +561,7 @@ def serve(env_path: Path, port: int = DEFAULT_PORT, quiet: bool = False):
         print(f"\n\033[1m  Bearer Token (give to your agent):\033[0m")
         print(f"\033[32m  {token}\033[0m")
     print(f"\n\033[2m  Access log: {base_dir / LOG_FILE}\033[0m")
-    print(f"\033[2m  Usage log:  {base_dir / USAGE_LOG}\033[0m")
+    print(f"\n\033[2m  Usage log:  {base_dir / USAGE_LOG}\033[0m")
     print(f"\033[2m  Permissions: {base_dir / PERMISSIONS_FILE}\033[0m")
     print(f"\n\033[36m  Example:\033[0m")
     tok_hint = "$(cat .check_please_agent_token)" if quiet else token
@@ -492,7 +570,10 @@ def serve(env_path: Path, port: int = DEFAULT_PORT, quiet: bool = False):
     print(f"\n\033[2m  Press Ctrl+C to stop\033[0m\n")
 
     handler = _make_handler(token, env_vars, permissions, base_dir, token_expires, tracker)
-    server = HTTPServer(("127.0.0.1", port), handler)
+    from http.server import ThreadingHTTPServer
+
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    server.daemon_threads = True
     try:
         server.serve_forever()
     except KeyboardInterrupt:

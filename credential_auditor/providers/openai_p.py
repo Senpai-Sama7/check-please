@@ -13,8 +13,11 @@ from credential_auditor.providers import Provider, _extract_rate_limit, _safe_js
 
 class OpenAIProvider(Provider):
     name: ClassVar[str] = "openai"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^OPENAI_API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^sk-[A-Za-z0-9_-]{20,}(_ALT\d+)?$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^OPENAI_API_KEY(_ALT\d+)?$")]
+    # Negative lookahead excludes anthropic and openrouter which have longer literal prefixes
+    key_format: ClassVar[re.Pattern[str]] = re.compile(
+        r"^sk-(?!ant-|or-v1-)[A-Za-z0-9_-]{20,}$"
+    )
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

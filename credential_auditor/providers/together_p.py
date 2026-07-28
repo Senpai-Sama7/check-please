@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class TogetherProvider(Provider):
     name: ClassVar[str] = "together"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^TOGETHER_(AI_)?API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^[a-f0-9]{64}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^TOGETHER_(AI_)?API_KEY(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^[a-f0-9]{64}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

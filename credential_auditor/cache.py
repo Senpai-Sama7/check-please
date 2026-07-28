@@ -65,6 +65,15 @@ class ValidationCache:
 
     def clear(self) -> None:
         self._store.clear()
+        self.stats = CacheStats()
 
     def __len__(self) -> int:
         return len(self._store)
+
+    def purge_expired(self) -> int:
+        """Remove expired entries, return count purged."""
+        now = time.monotonic()
+        expired = [k for k, (_, ts) in self._store.items() if (now - ts) >= self.ttl]
+        for k in expired:
+            del self._store[k]
+        return len(expired)

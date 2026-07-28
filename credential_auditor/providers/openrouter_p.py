@@ -13,10 +13,10 @@ from credential_auditor.providers import Provider, _safe_json
 
 class OpenRouterProvider(Provider):
     name: ClassVar[str] = "openrouter"
-    env_patterns: ClassVar[list[re.Pattern]] = [
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"^OPEN_ROUTER_(API_KEY|MANAGEMENT_KEY)(_ALT\d+)?$"),
     ]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^sk-or-v1-[a-f0-9]{64}$")
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^sk-or-v1-[a-f0-9]{64}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

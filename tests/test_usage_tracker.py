@@ -49,7 +49,16 @@ class TestParseDurationEdge:
 
     def test_garbage(self):
         assert _parse_duration("nope") == 0
-        assert _parse_duration("12") == 0
+        # Plain numbers now accepted as seconds for usability
+        assert _parse_duration("12") == 12
+        assert _parse_duration("3600") == 3600
+
+    def test_plain_seconds(self):
+        assert _parse_duration("30") == 30
+        assert _parse_duration("30s") == 30
+        assert _parse_duration("5m") == 300
+        assert _parse_duration("2h") == 7200
+        assert _parse_duration("1d") == 86400
 
 
 class TestHmacCompareAvailable:

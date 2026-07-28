@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class MistralProvider(Provider):
     name: ClassVar[str] = "mistral"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^MISTRAL_API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^[A-Za-z0-9]{20,}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^MISTRAL_API_KEY(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9]{20,}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

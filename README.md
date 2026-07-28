@@ -8,14 +8,15 @@
 <!-- Badges row 1 -->
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-e94560?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-93%2F93_passing-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#)
-[![Self-Test](https://img.shields.io/badge/invariants-7%2F7_verified-00c853?style=for-the-badge&logo=checkmarx&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-153%2F153_passing-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#-quality)
+[![Self-Test](https://img.shields.io/badge/invariants-7%2F7_verified-00c853?style=for-the-badge&logo=checkmarx&logoColor=white)](#-quality)
+[![Type-Checked](https://img.shields.io/badge/mypy-strict_clean-00c853?style=for-the-badge&logo=python&logoColor=white)](#-quality)
 [![Security Audit](https://img.shields.io/badge/hostile_audit-REMEDIATED-00c853?style=for-the-badge&logo=hackthebox&logoColor=white)](HOSTILE_AUDIT_REPORT.md)
 
 <!-- Badges row 2 -->
 [![Providers](https://img.shields.io/badge/providers-16_supported-0f3460?style=for-the-badge&logo=keycdn&logoColor=white)](#-providers-16)
 [![Interfaces](https://img.shields.io/badge/interfaces-6_modes-0f3460?style=for-the-badge&logo=windowsterminal&logoColor=white)](#-interfaces)
-[![Zero Dependencies*](https://img.shields.io/badge/deps-3_total-0f3460?style=for-the-badge&logo=pypi&logoColor=white)](#)
+[![Zero Dependencies](https://img.shields.io/badge/runtime_deps-3_total-0f3460?style=for-the-badge&logo=pypi&logoColor=white)](#-install)
 [![MCP Badge](https://lobehub.com/badge/mcp/senpai-sama7-check-please)](https://lobehub.com/mcp/senpai-sama7-check-please)
 [![MCP Badge](https://lobehub.com/badge/mcp-full/senpai-sama7-check-please?theme=light)](https://lobehub.com/mcp/senpai-sama7-check-please)
 
@@ -34,6 +35,8 @@
   ║   🤖  AI agent broker (scoped · logged · revocable)         ║
   ║   🔍  16-provider audit pipeline (live API validation)       ║
   ║   🖥️  6 interfaces (CLI · TUI · Web · Desktop · API · MCP)  ║
+  ║   ⚡  Prometheus /metrics · circuit breaker · HTTP/2 pool  ║
+  ║   🧬  Property + chaos + OpenAPI + perf regression tests   ║
   ║   🛡️  Hostile security audit: PASSED                        ║
   ║                                                              ║
   ╚══════════════════════════════════════════════════════════════╝
@@ -125,7 +128,9 @@ eval $(./start.sh --agent-export)         # export to shell
 5. All access is logged. Respect the permissions file — denied requests return 403.
 6. Report token usage: POST http://127.0.0.1:8458/usage with {"key":"VAR_NAME","tokens":N,"model":"model-name"}
 7. MCP agents: use the report_usage tool after API calls to help the owner track costs.
-8. If you get a 429 response, you've hit the RPM limit — back off and retry. -->
+8. If you get a 429 response, you've hit the RPM limit — back off and retry.
+9. Observability: GET http://127.0.0.1:8458/metrics for Prometheus-format metrics.
+10. Shell completion: run `check-please --completion bash|zsh|fish` to install. -->
 
 ---
 
@@ -160,12 +165,13 @@ eval $(./start.sh --agent-export)         # export to shell
 | Per-agent usage tracking | ✅ | ❌ |
 | Session-authenticated API | ✅ | 😬 |
 | Encrypted vault | ✅ PBKDF2 200K | 🤷 plaintext? |
+| Circuit breaker + /metrics | ✅ | ❌ |
 
 </div>
 
 ---
 
-## 📊 Usage Tracking & Alerts
+## 📊 Usage Tracking, Alerts & Metrics
 
 Every credential request is counted. Every token is tracked. Every agent is logged.
 
@@ -175,12 +181,24 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage
 
 # Per-key breakdown
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage/OPENAI_API_KEY
+
+# Prometheus-format metrics (counters, gauges, histograms)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/metrics
 ```
 
 **Alerts fire automatically:**
-- 🚨 Agent exceeds RPM limit → `429` + terminal warning + webhook
+- 🚨 Agent exceeds RPM limit → `429` + terminal warning + webhook (https-only, private-host blocked)
 - 💰 Token threshold exceeded → terminal warning + webhook
 - 📝 All access logged to `agent_usage.log` (append-only JSON)
+
+**Prometheus metrics exposed:**
+- `check_please_http_requests_total` (counter)
+- `check_please_http_requests_granted_total` / `_denied_total`
+- `check_please_http_request_duration_seconds` (histogram)
+- `check_please_audits_total` / `check_please_keys_validated_total` / `check_please_keys_valid_total` / `check_please_keys_failed_total`
+- `check_please_cache_hits_total` / `check_please_cache_misses_total` / `check_please_cache_size`
+- `check_please_circuit_breaker_trips_total`
+- `check_please_audit_duration_seconds` (histogram)
 
 ---
 
@@ -255,8 +273,11 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage/OPENAI_API_KE
   │  🛑  10MB request body limit (anti-DoS)                  │
   │  🏠  localhost-only binding                              │
   │  📝  All access logged (append-only)                     │
-  │  🔗  Symlink/hardlink attack detection                   │
+  │  🔗  Symlink/hardlink attack detection (parent chain)    │
   │  🚫  No raw keys in any output — ever                    │
+  │  🔐  Circuit breaker prevents credential-stuffing DoS    │
+  │  🚦  Webhook SSRF guard (https-only, no private hosts)   │
+  │  💉  CSV formula injection sanitized on export            │
   │                                                          │
   └──────────────────────────────────────────────────────────┘
 ```
@@ -285,6 +306,13 @@ Attempt 5 → 16s lockout
 Attempt 6+ → 30s lockout (capped)
 ```
 
+### Circuit Breaker
+
+Per-provider circuit breaker protects against credential-stuffing and outage cascades:
+- 5 consecutive failures → circuit **opens** (fast-fail for 30s)
+- After 30s → circuit goes **half-open** (allows one test request)
+- On success → circuit **closes** (normal traffic resumes)
+
 ---
 
 ## 🔐 Password Vault
@@ -294,7 +322,7 @@ Your vault stores passwords, API keys, and credentials — all encrypted locally
 - ✅ **Add/edit/delete** entries with site, username, password, notes
 - ✅ **Password generator** with configurable length and complexity
 - ✅ **Import CSV** from Chrome, 1Password, Bitwarden, LastPass, etc.
-- ✅ **Export CSV** for portability
+- ✅ **Export CSV** (formula-injection-safe) for portability
 - ✅ **Biometric unlock** via phone (FIDO2/WebAuthn)
 - ✅ **Encrypted backups** (`.cpbackup` files)
 - ✅ **Emergency recovery sheet** (printable)
@@ -312,11 +340,66 @@ Your vault stores passwords, API keys, and credentials — all encrypted locally
 | `GET` | `/credentials` | List allowed credential names (no values) |
 | `POST` | `/credentials/{VAR}` | Get credential value (if permitted) |
 | `GET` | `/health` | Server status |
+| `GET` | `/metrics` | Prometheus-format metrics |
 | `GET` | `/usage` | Usage summary for all credentials |
 | `GET` | `/usage/{VAR}` | Per-credential usage stats |
 | `POST` | `/usage` | Agent reports token consumption |
 
 All requests require `Authorization: Bearer <token>`. Token displayed on startup.
+
+Full OpenAPI 3.1 spec in [`openapi.yaml`](openapi.yaml).
+
+---
+
+## ⚡ Performance & Resilience
+
+- **Connection pooling**: 20 keep-alive + 100 max connections per `httpx` client
+- **HTTP/2**: enabled by default (falls back gracefully if `httpx[http2]` missing)
+- **Concurrent audit**: 10 parallel provider checks with throttled semaphore
+- **Failed-provider bail**: skip provider after 3 consecutive auth failures
+- **Auto-detect**: keys matched by format pattern when env var name is ambiguous (specificity-sorted)
+
+---
+
+## 🧬 Quality
+
+We don't ship on hope. Every change must pass these gates:
+
+```bash
+python -m pytest tests/ -q          # 153 tests — property, chaos, contract, perf, security
+python -m mypy credential_auditor   # strict mode, 0 errors
+python -m credential_auditor --self-test  # 7 invariant checks
+```
+
+**Test coverage by category:**
+
+| Suite | Count | Purpose |
+|---|---:|---|
+| `test_models.py` | existing | Frozen dataclass + canonical JSON ordering |
+| `test_providers.py` | existing | 16-provider registry, format matching, auto-detect |
+| `test_security_organize.py` | existing | Symlink/hardlink detection, env permissions |
+| `test_crypto_vault.py` | existing | PBKDF2/SHAKE-256/HMAC encryption, recovery |
+| `test_agent_modes.py` | existing | --export, --env, --write-env, --mcp |
+| `test_usage_tracker.py` | existing | RPM tracking, scope enforcement |
+| `test_properties.py` | 16 | Hypothesis property-based invariants (200+ examples each) |
+| `test_chaos.py` | 10 | Network failures, partial isolation, concurrency chaos |
+| `test_openapi_contract.py` | 11 | Spec validity, endpoint coverage, response schema |
+| `test_cli_completion.py` | 5 | Bash/zsh/fish completion scripts |
+| `test_metrics.py` | 8 | Prometheus exposition format + /metrics endpoint |
+| `test_performance.py` | 9 | Throughput baselines with 20% regression margin |
+
+**Established performance baselines:**
+
+| Operation | Baseline | Test |
+|---|---:|---|
+| KeyFingerprint.from_key | ≥ 8,000 ops/s | `test_fingerprint_throughput` |
+| redact_key (partial) | ≥ 20,000 ops/s | `test_redaction_throughput` |
+| Cache put+get cycle | ≥ 5,000 ops/s | `test_cache_put_get_throughput` |
+| detect_provider_by_key | ≥ 1,000 keys/s | `test_detect_throughput` |
+| Circuit breaker lookup | < 10μs/call | `test_circuit_breaker_lookup_overhead` |
+| Env pattern match | ≥ 5,000 ops/s | `test_env_pattern_match_throughput` |
+| _literal_prefix_len | ≥ 50,000 ops/s | `test_literal_prefix_len_throughput` |
+| 50-key audit (mock) | < 2.0s | `test_audit_50_keys_under_2s` |
 
 ---
 
@@ -335,6 +418,8 @@ All requests require `Authorization: Bearer <token>`. Token displayed on startup
 | Legacy single-account data | Auto-migrated to multi-account |
 | WebAuthn not supported | Falls back to browser |
 | Downloads folder missing | Auto-created |
+| Provider circuit open | Fast-fail with `network_error`, auto-retry after 30s |
+| Corrupted key regex | Returns "no provider matched" — no crash |
 
 </details>
 
@@ -370,18 +455,43 @@ Drop the file. Run the tool. Provider auto-discovered. **Zero registration, zero
 
 ---
 
+## 🐚 Shell Completion
+
+```bash
+# Bash
+eval "$(check-please --completion bash)"
+
+# Zsh
+eval "$(check-please --completion zsh)"  # then add to your fpath
+
+# Fish
+check-please --completion fish | source
+```
+
+All options (--env, --provider, --output, --redaction-level, etc.) are fully tab-completable, with provider names dynamically resolved from `--list-providers`.
+
+---
+
 ## 📦 Install
 
 ```bash
 pip install .           # core (3 deps: httpx, rich, python-dotenv)
 pip install ".[tui]"    # + Textual TUI
+pip install ".[dev]"    # + pytest, mypy, hypothesis (for development)
 ```
 
 Or just run `./start.sh` — handles venv, deps, and launch automatically.
 
----
+### Requirements
 
-<div align="center">
+- Python 3.10+
+- `httpx >= 0.27` (HTTP client)
+- `rich >= 13.0` (terminal formatting)
+- `python-dotenv >= 1.0` (`.env` parsing)
+
+No native extensions. No Rust toolchain. No npm. Just `pip install` and go.
+
+---
 
 ## 🏆 Why check_please?
 
@@ -397,8 +507,15 @@ Or just run `./start.sh` — handles venv, deps, and launch automatically.
 | Security audit | ✅ [hostile audit passed](HOSTILE_AUDIT_REPORT.md) | 🤷 | 🤷 |
 | Request body limits | ✅ 10MB cap | ❌ OOM me | N/A |
 | Security headers | ✅ CSP + HSTS + XFO | ❌ | N/A |
+| Circuit breaker | ✅ per-provider | ❌ | N/A |
+| Prometheus /metrics | ✅ | ❌ | N/A |
+| Shell completion | ✅ bash/zsh/fish | ❌ | N/A |
+| Property-based tests | ✅ hypothesis | ❌ | N/A |
+| Chaos tests | ✅ 10 scenarios | ❌ | N/A |
+| OpenAPI contract tests | ✅ 11 endpoints | ❌ | N/A |
+| Type-checked (mypy strict) | ✅ 0 errors | 🤷 | N/A |
 | Setup time | ~30 seconds | ??? | instant (insecure) |
-| Dependencies | 3 | 🤷 | 0 |
+| Runtime dependencies | 3 | 🤷 | 0 |
 
 <br/>
 
@@ -407,5 +524,4 @@ Or just run `./start.sh` — handles venv, deps, and launch automatically.
 <br/>
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1a2e,50:e94560,100:0f3460&height=120&section=footer&animation=fadeIn" width="100%"/>
-
 </div>

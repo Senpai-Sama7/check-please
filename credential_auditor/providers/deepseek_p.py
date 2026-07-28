@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class DeepSeekProvider(Provider):
     name: ClassVar[str] = "deepseek"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^DEEPSEEK_API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^sk-[a-f0-9]{32,}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^DEEPSEEK_API_KEY(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^sk-[a-f0-9]{32,}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

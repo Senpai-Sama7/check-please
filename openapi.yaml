@@ -32,7 +32,7 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: ok }
-                  uptime: { type: number, example: 42.5 }
+                  credentials_loaded: { type: integer, example: 5 }
 
   /providers:
     get:

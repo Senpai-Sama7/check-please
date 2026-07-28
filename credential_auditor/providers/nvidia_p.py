@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class NvidiaProvider(Provider):
     name: ClassVar[str] = "nvidia"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^NVIDIA_API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^nvapi-[A-Za-z0-9_-]{40,}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^NVIDIA_API_KEY(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^nvapi-[A-Za-z0-9_-]{40,}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

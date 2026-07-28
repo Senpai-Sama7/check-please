@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 Status = Literal[
     "valid",
@@ -46,11 +46,11 @@ class KeyFingerprint:
             key_hash=hashlib.sha256(key.encode()).hexdigest()[:16],
         )
 
-    def to_dict(self, redaction_level: str = "partial") -> dict:
+    def to_dict(self, redaction_level: str = "partial") -> dict[str, Any]:
         if redaction_level == "full":
             return {"redacted": "[REDACTED]", "length": self.length}
         if redaction_level == "hash":
-            h = self.key_hash or "unknown"
+            h: str = self.key_hash or "unknown"
             return {"redacted": f"[sha256:{h}]", "length": self.length}
         return {"prefix": self.prefix, "suffix": self.suffix, "length": self.length}
 
@@ -61,7 +61,7 @@ class RateLimitInfo:
     remaining: int
     reset_ts: int
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int]:
         return {"limit": self.limit, "remaining": self.remaining, "reset_ts": self.reset_ts}
 
 
@@ -76,12 +76,12 @@ class KeyResult:
     account_info: Optional[str] = None
     scopes: Optional[list[str]] = field(default=None, hash=False)
     rate_limit: Optional[RateLimitInfo] = None
-    usage_stats: Optional[dict] = field(default=None, hash=False)
+    usage_stats: Optional[dict[str, Any]] = field(default=None, hash=False)
     latency_ms: float = 0.0
     error_detail: Optional[str] = None
     auto_detected: bool = False
 
-    def to_dict(self, redaction_level: str = "partial") -> dict:
+    def to_dict(self, redaction_level: str = "partial") -> dict[str, Any]:
         """Canonical field ordering per spec — INV-5."""
         return {
             "provider": self.provider,
@@ -113,7 +113,7 @@ class AuditSummary:
     total_latency_ms: float
     auto_detected: int  # keys matched by key pattern, not env var name
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_keys": self.total_keys,
             "valid": self.valid,

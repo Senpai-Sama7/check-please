@@ -39,11 +39,36 @@ _MAX_BODY_BYTES = 10_485_760  # 10 MB
 _RECOVERY_GROUPS = 4
 _RECOVERY_BYTES_PER_GROUP = 4  # 4×32 bits = 128-bit recovery keys
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _valid_env_key(key: str) -> bool:
+    """Validate env var name to prevent injection (no newlines, no '=', reasonable length)."""
+    if not key or len(key) > 128:
+        return False
+    if not _ENV_KEY_RE.fullmatch(key):
+        return False
+    # Forbid control chars and whitespace
+    if any(ord(c) < 32 or c in "\n\r=" for c in key):
+        return False
+    return True
 
 
 def _valid_username(username: str) -> bool:
     """Reject empty / path-traversing / oversized usernames."""
-    return bool(username) and bool(_USERNAME_RE.fullmatch(username))
+    if not username or not _USERNAME_RE.fullmatch(username):
+        return False
+    # Forbid reserved names and patterns that could be confusing
+    if username in (".", ".."):
+        return False
+    if username.startswith("."):
+        return False
+    if ".." in username:
+        return False
+    # Must contain at least one alphanumeric to avoid names like "---" or "___"
+    if not any(c.isalnum() for c in username):
+        return False
+    return True
 
 
 def _safe_under(base: Path, candidate: Path) -> bool:
@@ -131,6 +156,17 @@ def _save_vault(entries: list[dict]) -> None:
         blob = _encrypt(json.dumps(entries, separators=(",", ":")), _session_passkey)
         vf.write_text(json.dumps({"v": 2, "encrypted": blob}, indent=2))
     else:
+        # Security: never downgrade an encrypted vault to plaintext.
+        # If file already exists and is encrypted, refuse to overwrite.
+        if vf.is_file():
+            try:
+                existing = json.loads(vf.read_text())
+                if isinstance(existing, dict) and "encrypted" in existing:
+                    raise RuntimeError("Refusing to overwrite encrypted vault without session key")
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
         # Fallback for migration/tests without an active session — still chmod 600
         vf.write_text(json.dumps(entries, indent=2))
     os.chmod(vf, 0o600)
@@ -1312,11 +1348,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"entries": _load_vault()})
         elif path == "/api/vault/export":
             entries = _load_vault()
+
+            def _csv_safe(v: str) -> str:
+                # Prevent CSV formula injection (Excel/Sheets)
+                if v and v[0] in ("=", "+", "-", "@", "|", "%"):
+                    return "'" + v
+                return v
+
             out = io.StringIO()
-            w = csv.writer(out)
+            w = csv.writer(out, quoting=csv.QUOTE_ALL)
             w.writerow(["site", "username", "password", "notes"])
             for e in entries:
-                w.writerow([e.get("site", ""), e.get("username", ""), e.get("password", ""), e.get("notes", "")])
+                w.writerow([
+                    _csv_safe(e.get("site", "")),
+                    _csv_safe(e.get("username", "")),
+                    _csv_safe(e.get("password", "")),
+                    _csv_safe(e.get("notes", "")),
+                ])
             self._csv_response(out.getvalue(), "vault_export.csv")
         elif path == "/stop":
             if not self._check_session():
@@ -1682,8 +1730,14 @@ class Handler(BaseHTTPRequestHandler):
             existing = {l.split("=", 1)[0].strip() for l in lines if "=" in l and not l.strip().startswith("#")}
             added = 0
             for k, v in data.get("vars", {}).items():
+                if not _valid_env_key(k):
+                    continue
+                # Sanitize value: strip newlines and control chars that could break .env format
+                v_clean = str(v).replace("\n", "").replace("\r", "")
+                if len(v_clean) > 4096:
+                    v_clean = v_clean[:4096]
                 if k not in existing:
-                    lines.append(f"{k}={v}")
+                    lines.append(f"{k}={v_clean}")
                     added += 1
             env_path.write_text("\n".join(lines) + "\n")
             os.chmod(env_path, 0o600)
@@ -1802,7 +1856,10 @@ class Handler(BaseHTTPRequestHandler):
 # ── Server entry point ────────────────────────────────────────────────────
 
 def run(port: int = PORT) -> int:
-    server = HTTPServer(("localhost", port), Handler)
+    from http.server import ThreadingHTTPServer
+
+    server = ThreadingHTTPServer(("localhost", port), Handler)
+    server.daemon_threads = True
     url = f"http://localhost:{port}"
     print(f"\n  🌐 Check Please — Web Interface")
     print(f"  ────────────────────────────────")

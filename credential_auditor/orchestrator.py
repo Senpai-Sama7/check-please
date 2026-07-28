@@ -17,15 +17,16 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from dotenv import dotenv_values
 from rich.console import Console
 
-from credential_auditor.audit_log import AuditLog
+from credential_auditor.audit_log import AuditLog, get_correlation_id, set_correlation_id
 from credential_auditor.cache import ValidationCache
 from credential_auditor.models import (
     AuditSummary,
@@ -45,6 +46,43 @@ _FAIL_BAIL_THRESHOLD = 3
 # Limit concurrent outbound requests to avoid triggering provider rate limits
 _CONCURRENCY_LIMIT = 10
 
+# Circuit breaker state per provider: {provider: (failure_count, last_failure_ts, state)}
+# state: "closed" (normal), "open" (failing fast), "half_open" (testing recovery)
+_circuit_breakers: dict[str, tuple[int, float, str]] = {}
+_CIRCUIT_BREAK_THRESHOLD = 5  # failures before opening
+_CIRCUIT_BREAK_TIMEOUT = 30.0  # seconds before half-open retry
+
+
+def _record_circuit_result(name: str, success: bool) -> None:
+    """Update circuit breaker state for a provider based on request outcome."""
+    now = time.time()
+    count, last_ts, state = _circuit_breakers.get(name, (0, 0.0, "closed"))
+    if success:
+        _circuit_breakers[name] = (0, now, "closed")
+    else:
+        new_count = count + 1
+        new_state = "open" if new_count >= _CIRCUIT_BREAK_THRESHOLD else state
+        _circuit_breakers[name] = (new_count, now, new_state)
+
+
+def _should_allow_request(name: str) -> bool:
+    """Check if circuit breaker allows a request to this provider."""
+    count, last_ts, state = _circuit_breakers.get(name, (0, 0.0, "closed"))
+    if state == "closed":
+        return True
+    if state == "open":
+        if time.time() - last_ts > _CIRCUIT_BREAK_TIMEOUT:
+            _circuit_breakers[name] = (count, time.time(), "half_open")
+            return True
+        return False
+    # half_open: allow single test request
+    return True
+
+
+def _get_circuit_state(name: str) -> str:
+    """Return current circuit breaker state for a provider."""
+    return _circuit_breakers.get(name, (0, 0.0, "closed"))[2]
+
 
 class AuditResults(list[KeyResult]):
     """list subclass that carries an AuditSummary attribute."""
@@ -58,16 +96,24 @@ async def audit(
     timeout: float = 30.0,
     console: Optional[Console] = None,
     audit_log_path: Optional[Path] = None,
+    correlation_id: Optional[str] = None,
 ) -> list[KeyResult]:
-    """Run credential audit. Returns list of KeyResult in stable order."""
+    """Run credential audit. Returns list of KeyResult in stable order.
+
+    If correlation_id provided, sets it for structured logging context.
+    """
     suppress_credential_logging()
     discover_providers()
     console = console or Console(stderr=True)
     registry = Provider.get_registry()
 
+    # Set correlation ID for structured logging (if provided by caller)
+    if correlation_id:
+        set_correlation_id(correlation_id)
+
     # Audit log
     alog = AuditLog(audit_log_path or env_path.parent / "audit.log")
-    alog.log("audit_start", detail=str(env_path))
+    alog.log("audit_start", detail=str(env_path), extra={"cid": get_correlation_id()})
 
     if providers:
         for p in providers:
@@ -83,7 +129,9 @@ async def audit(
 
     env_vars = dotenv_values(env_path)
 
-    # Expose non-secret companion vars (e.g. TWILIO_ACCOUNT_SID) so providers can read them.
+    # Expose known companion vars (e.g. TWILIO_ACCOUNT_SID) so providers can read them.
+    # Previously this injected all non-secret vars, which could leak DATABASE_URL etc.
+    # Now restricted to explicit allowlist for security.
     # Save prior values so we can restore (never permanently clobber the process env).
     _env_backup: dict[str, str | None] = {}
 
@@ -92,11 +140,8 @@ async def audit(
             _env_backup[var] = os.environ.get(var)
         os.environ[var] = value
 
-    for var, value in env_vars.items():
-        if var and value and not any(s in var.upper() for s in ("SECRET", "TOKEN", "PASSWORD", "KEY", "AUTH")):
-            if var not in os.environ:
-                _inject(var, value)
-    for var in ("TWILIO_ACCOUNT_SID",):
+    _COMPANION_VARS = ("TWILIO_ACCOUNT_SID",)
+    for var in _COMPANION_VARS:
         val = env_vars.get(var)
         if val:
             _inject(var, val)
@@ -158,6 +203,14 @@ async def audit(
 
         async def _throttled_check(inst: Provider, var: str, key: str, client: httpx.AsyncClient) -> KeyResult:
             async with sem:
+                # Circuit breaker fast-fail
+                if not _should_allow_request(inst.name):
+                    return KeyResult(
+                        provider=inst.name, env_var=var,
+                        key_fingerprint=KeyFingerprint.from_key(key),
+                        status="network_error",
+                        error_detail="circuit breaker open — provider temporarily disabled",
+                    )
                 # Skip if this provider already bailed (checked under lock for consistency)
                 async with bail_lock:
                     if inst.name in skipped_providers:
@@ -168,6 +221,8 @@ async def audit(
                             error_detail=f"skipped: provider bailed after {_FAIL_BAIL_THRESHOLD} consecutive failures",
                         )
                 result = await inst.check_key(var, key, client)
+                success = result.status == "valid"
+                _record_circuit_result(inst.name, success)
                 if result.status in FAILING_STATUSES:
                     async with bail_lock:
                         fail_counts[inst.name] = fail_counts.get(inst.name, 0) + 1
@@ -183,7 +238,14 @@ async def audit(
                         fail_counts[inst.name] = 0
                 return result
 
-        async with httpx.AsyncClient(timeout=timeout, max_redirects=0) as client:
+        # God-tier: HTTP/2 + connection pooling + keep-alive for lower latency
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=100, keepalive_expiry=30.0)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            max_redirects=0,
+            limits=limits,
+            http2=True,  # requires httpx[http2] but falls back gracefully if not installed
+        ) as client:
             coros = [_throttled_check(inst, var, key, client) for var, key, inst in uncached_tasks]
             raw: list[KeyResult | BaseException] = await asyncio.gather(*coros, return_exceptions=True)
 

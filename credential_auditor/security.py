@@ -51,15 +51,34 @@ def check_output_permissions(path: Path, force: bool = False) -> bool:
     """Return True if safe to write. Refuses symlinks. Warns on world-readable."""
     if is_symlink_or_hardlink_attack(path):
         return False
+    # Also check parent directories for symlink attacks (TOCTOU mitigation)
+    try:
+        for parent in path.parents:
+            if parent.is_symlink():
+                return False
+            # Stop at filesystem root or when parent is not under cwd-like path
+            if str(parent) in ("/", str(parent.parent)):
+                break
+    except OSError:
+        pass
     if not path.exists():
         parent = path.parent
         if parent.exists():
-            mode = os.stat(parent).st_mode
+            # Refuse if parent itself is symlink or world-readable without force
+            if is_symlink_or_hardlink_attack(parent):
+                return False
+            try:
+                mode = os.stat(parent).st_mode
+            except OSError:
+                return False
             if mode & stat.S_IROTH:
                 if not force:
                     return False
         return True
-    mode = os.stat(path).st_mode
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        return False
     if mode & stat.S_IROTH:
         return force
     return True

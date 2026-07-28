@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class SlackProvider(Provider):
     name: ClassVar[str] = "slack"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^SLACK_(BOT_TOKEN|TOKEN|API_TOKEN)(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^xox[bpas]-[A-Za-z0-9-]{10,}(_ALT\d+)?$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^SLACK_(BOT_TOKEN|TOKEN|API_TOKEN)(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^xox[bpas]-[A-Za-z0-9-]{10,}(_ALT\d+)?$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

@@ -43,12 +43,79 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout in seconds (default: 30)")
     p.add_argument("--self-test", action="store_true", help="Run invariant self-test suite")
     p.add_argument("--version", action="store_true", help="Show version and exit")
+    p.add_argument("--completion", choices=["bash", "zsh", "fish"], metavar="SHELL",
+                   help="Print shell completion script for bash/zsh/fish and exit")
     return p
+
+
+_BASH_COMPLETION = '''# check_please bash completion
+_check_please() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="--env --provider --output --json --quiet -q --dry-run --list-providers --redaction-level --force-insecure-output --timeout --self-test --version --completion"
+    if [[ ${cur} == -* ]] ; then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+}
+complete -F _check_please check-please
+complete -F _check_please check_please
+'''
+
+_ZSH_COMPLETION = '''#compdef check-please check_please
+_check_please() {
+    local -a opts
+    opts=(
+        "--env[Path to .env file]:file:_files"
+        "--provider[Provider to check]:provider:_check_please_providers"
+        "--output[Write JSON results to file]:file:_files"
+        "--json[Print JSON to stdout]"
+        "--quiet[Suppress table output]:quiet flag:(-q)"
+        "--dry-run[Preview without API calls]"
+        "--list-providers[List available providers]"
+        "--redaction-level[Redaction level]:level:(partial full hash)"
+        "--force-insecure-output[Skip file permission check]"
+        "--timeout[HTTP timeout]:timeout:"
+        "--self-test[Run invariant self-test]"
+        "--version[Show version]"
+        "--completion[Shell completion]:shell:(bash zsh fish)"
+    )
+    _arguments $opts
+}
+_check_please_providers() {
+    local providers
+    providers=($(check-please --list-providers 2>/dev/null | grep -oE "^│ [a-z]+" | tr -d "│ "))
+    compadd "$@" $providers
+}
+'''
+
+_FISH_COMPLETION = '''# check_please fish completion
+complete -c check-please -l env -r -d "Path to .env file"
+complete -c check-please -l provider -r -d "Provider to check (repeatable)"
+complete -c check-please -l output -r -d "Write JSON results to file"
+complete -c check-please -l json -d "Print JSON to stdout"
+complete -c check-please -l quiet -s q -d "Suppress table output"
+complete -c check-please -l dry-run -d "Preview without API calls"
+complete -c check-please -l list-providers -d "List available providers"
+complete -c check-please -l redaction-level -xa "partial full hash" -d "Redaction level"
+complete -c check-please -l force-insecure-output -d "Skip file permission check"
+complete -c check-please -l timeout -d "HTTP timeout in seconds"
+complete -c check-please -l self-test -d "Run invariant self-test"
+complete -c check-please -l version -d "Show version and exit"
+complete -c check-please -l completion -xa "bash zsh fish" -d "Print shell completion script"
+'''
 
 
 def main() -> int:
     args = _build_parser().parse_args()
     console = Console(quiet=args.quiet) if hasattr(args, 'quiet') and args.quiet else Console()
+
+    if getattr(args, 'completion', None):
+        scripts = {"bash": _BASH_COMPLETION, "zsh": _ZSH_COMPLETION, "fish": _FISH_COMPLETION}
+        print(scripts[args.completion], end="")
+        return 0
 
     if args.version:
         from credential_auditor import __version__
@@ -126,11 +193,14 @@ def main() -> int:
     from credential_auditor.output import render_table, write_json
 
     try:
+        import secrets
+        cid = secrets.token_hex(8)
         results = asyncio.run(audit(
             env_path=args.env,
             providers=args.providers,
             timeout=args.timeout,
             console=Console(stderr=True, quiet=True) if args.quiet else Console(stderr=True),
+            correlation_id=cid,
         ))
     except KeyboardInterrupt:
         console.print("\n[yellow]Audit interrupted.[/yellow]")

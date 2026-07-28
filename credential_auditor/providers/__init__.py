@@ -14,7 +14,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional, Pattern
 
 import httpx
 
@@ -34,12 +34,12 @@ class Provider(ABC):
     subclass — no orchestration changes needed (INV-6).
     """
 
-    _registry: ClassVar[dict[str, type["Provider"]]] = {}
+    _registry: ClassVar[dict[str, type[Provider]]] = {}
 
     # Subclasses MUST define these
     name: ClassVar[str]
-    env_patterns: ClassVar[list[re.Pattern]]
-    key_format: ClassVar[re.Pattern]
+    env_patterns: ClassVar[list[Pattern[str]]]
+    key_format: ClassVar[Pattern[str]]
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -47,11 +47,11 @@ class Provider(ABC):
             Provider._registry[cls.name] = cls
 
     @classmethod
-    def get_registry(cls) -> dict[str, type["Provider"]]:
+    def get_registry(cls) -> dict[str, type[Provider]]:
         return dict(cls._registry)
 
     @classmethod
-    def get_provider(cls, name: str) -> "Provider":
+    def get_provider(cls, name: str) -> Provider:
         if name not in cls._registry:
             raise ValueError(f"Unknown provider: {name}. Available: {list(cls._registry)}")
         return cls._registry[name]()
@@ -68,7 +68,7 @@ class Provider(ABC):
     @abstractmethod
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],
-        Optional[dict], Optional[str]
+        Optional[dict[str, Any]], Optional[str]
     ]:
         """Validate key via network. Returns (status, account_info, scopes, rate_limit, usage_stats, error_detail)."""
         ...
@@ -104,13 +104,16 @@ class Provider(ABC):
 _MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB — reject oversized responses
 
 
-def _safe_json(resp: httpx.Response) -> dict:
+def _safe_json(resp: httpx.Response) -> dict[str, Any]:
     """Parse JSON response body, returning empty dict on failure."""
     try:
         if len(resp.content) > _MAX_RESPONSE_BYTES:
             return {}
         if resp.headers.get("content-type", "").startswith("application/json"):
-            return resp.json()
+            result = resp.json()
+            if isinstance(result, dict):
+                return result
+            return {}
     except (ValueError, KeyError):
         pass
     return {}
@@ -133,8 +136,24 @@ def _extract_rate_limit(response: httpx.Response, prefix: str = "x-ratelimit") -
 
 
 def _literal_prefix_len(pattern: str) -> int:
-    """Count leading literal chars in a regex pattern (after ^)."""
+    """Count leading literal chars in a regex pattern (after ^ and (?! )."""
     s = pattern.lstrip("^")
+    # Skip negative lookahead groups like (?!...)
+    while s.startswith("(?!") or s.startswith("(?="):
+        depth = 0
+        end = -1
+        for i, ch in enumerate(s):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            s = s[end + 1 :]
+        else:
+            break
     count = 0
     for ch in s:
         if ch in r".[]()*+?{}|\\":
@@ -143,21 +162,37 @@ def _literal_prefix_len(pattern: str) -> int:
     return count
 
 
-def detect_provider_by_key(key: str) -> Optional[Provider]:
-    """Auto-detect provider from key value pattern (not env var name).
+def _charset_specificity(pattern: str) -> int:
+    """Lower value = more specific charset (e.g. [a-f0-9] more specific than [A-Za-z0-9_-])."""
+    m = re.search(r"\[([^\]]+)\]", pattern)
+    if not m:
+        return 100
+    charset = m.group(1)
+    score = len(charset)
+    if "A-Z" in charset:
+        score += 20
+    if "a-z" in charset and "A-Z" in charset:
+        score += 10
+    if "_" in charset or "-" in charset:
+        score += 5
+    return score
 
-    Ported from ultimate_credential_auditor's ProviderDetector concept.
-    Tries each registered provider's key_format regex against the raw key.
-    Prefers more specific matches (longer literal prefix) over generic ones.
-    """
+
+def detect_provider_by_key(key: str) -> Optional[Provider]:
+    """Auto-detect provider from key value pattern (not env var name)."""
     matches = [
         (name, cls) for name, cls in Provider.get_registry().items()
         if cls.key_format.match(key)
     ]
     if not matches:
         return None
-    # Most specific = longest literal prefix in the regex
-    matches.sort(key=lambda x: _literal_prefix_len(x[1].key_format.pattern), reverse=True)
+
+    def _sort_key(item: tuple[str, type[Provider]]) -> tuple[int, int, int]:
+        _name, cls = item
+        pat = cls.key_format.pattern
+        return (_literal_prefix_len(pat), -_charset_specificity(pat), len(pat))
+
+    matches.sort(key=_sort_key, reverse=True)
     return matches[0][1]()
 
 

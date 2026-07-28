@@ -13,10 +13,10 @@ from credential_auditor.providers import Provider, _safe_json
 
 class HuggingFaceProvider(Provider):
     name: ClassVar[str] = "huggingface"
-    env_patterns: ClassVar[list[re.Pattern]] = [
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"^(HUGGINGFACE_TOKEN|HF_TOKEN|HF_API_KEY|HF_PERSONAL_AUTHENTICATION_TOKEN|HUGGING_FACE_API_KEY)(_ALT\d+)?$"),
     ]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^hf_[A-Za-z0-9]{20,}(_ALT\d+)?$")
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^hf_[A-Za-z0-9]{20,}(_ALT\d+)?$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

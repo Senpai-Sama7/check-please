@@ -20,11 +20,11 @@ from credential_auditor.providers import Provider, _extract_rate_limit, _safe_js
 
 class GitHubProvider(Provider):
     name: ClassVar[str] = "github"
-    env_patterns: ClassVar[list[re.Pattern]] = [
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"^GITHUB_(TOKEN|API_KEY|PAT)(_ALT\d+)?$"),
         re.compile(r"^GH_TOKEN(_ALT\d+)?$"),
     ]
-    key_format: ClassVar[re.Pattern] = re.compile(
+    key_format: ClassVar[re.Pattern[str]] = re.compile(
         r"^(ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|v[0-9]\.[0-9a-f]{40})$"
     )
 

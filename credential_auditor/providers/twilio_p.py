@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class TwilioProvider(Provider):
     name: ClassVar[str] = "twilio"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^TWILIO_AUTH_TOKEN(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^[a-f0-9]{32}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^TWILIO_AUTH_TOKEN(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^[a-f0-9]{32}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],
@@ -25,8 +25,8 @@ class TwilioProvider(Provider):
         sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
         if not sid:
             return "network_error", None, None, None, None, "TWILIO_ACCOUNT_SID not set"
-        # SEC: Validate SID format to prevent SSRF via path traversal
-        if not re.match(r"^AC[a-f0-9]{32}$", sid):
+        # SEC: Validate SID format to prevent SSRF via path traversal (case-insensitive hex)
+        if not re.match(r"^AC[a-fA-F0-9]{32}$", sid):
             return "network_error", None, None, None, None, "Invalid TWILIO_ACCOUNT_SID format"
         resp = await client.get(
             f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json",

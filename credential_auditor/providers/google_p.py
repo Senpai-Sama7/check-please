@@ -13,10 +13,10 @@ from credential_auditor.providers import Provider, _safe_json
 
 class GoogleProvider(Provider):
     name: ClassVar[str] = "google"
-    env_patterns: ClassVar[list[re.Pattern]] = [
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"^(GOOGLE_API_KEY|GEMINI_API_KEY)(_ALT\d+)?$"),
     ]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^AIza[A-Za-z0-9_-]{35,60}$")
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^AIza[A-Za-z0-9_-]{35,60}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],

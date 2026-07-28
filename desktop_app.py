@@ -1,30 +1,27 @@
 """Native desktop app — embeds the web UI in a real OS window via pywebview."""
 from __future__ import annotations
 
-import socket
 import sys
 import threading
 import time
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 
-def _port_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-
-def _pick_port(preferred: int, attempts: int = 20) -> int:
-    """Use preferred port if free; otherwise find the next available port."""
+def _bind_free_server(handler_cls, preferred: int, attempts: int = 20):
+    """Try to bind ThreadingHTTPServer directly, avoiding TOCTOU between check and bind."""
+    last_exc = None
     for port in range(preferred, preferred + attempts):
-        if _port_free(port):
-            return port
-    raise OSError(f"No free port in range {preferred}–{preferred + attempts - 1}")
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler_cls)
+            server.daemon_threads = True
+            return server, port
+        except OSError as exc:
+            last_exc = exc
+            continue
+    raise OSError(
+        f"No free port in range {preferred}–{preferred + attempts - 1}: {last_exc}"
+    )
 
 
 def main() -> int:
@@ -39,17 +36,15 @@ def main() -> int:
     sys.path.insert(0, str(app_dir))
     from simple_web import Handler, PORT
 
-    # Never kill arbitrary processes on the port — bind a free port instead
+    # Bind server with retry to avoid port race
     try:
-        port = _pick_port(PORT)
+        server, port = _bind_free_server(Handler, PORT)
     except OSError as exc:
         print(f"Cannot start desktop app: {exc}", file=sys.stderr)
         return 1
 
     if port != PORT:
         print(f"Port {PORT} busy — using {port}", file=sys.stderr)
-
-    server = HTTPServer(("localhost", port), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 

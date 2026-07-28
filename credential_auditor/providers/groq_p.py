@@ -13,8 +13,8 @@ from credential_auditor.providers import Provider, _safe_json
 
 class GroqProvider(Provider):
     name: ClassVar[str] = "groq"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^GROQ_API_KEY(_ALT\d+)?$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^gsk_[A-Za-z0-9]{48,}$")
+    env_patterns: ClassVar[list[re.Pattern[str]]] = [re.compile(r"^GROQ_API_KEY(_ALT\d+)?$")]
+    key_format: ClassVar[re.Pattern[str]] = re.compile(r"^gsk_[A-Za-z0-9]{48,}$")
 
     async def validate(self, key: str, client: httpx.AsyncClient) -> tuple[
         Status, Optional[str], Optional[list[str]], Optional[RateLimitInfo],
