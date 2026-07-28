@@ -1,142 +1,175 @@
 <div align="center">
 
-<!-- Animated header banner -->
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1a2e,50:e94560,100:0f3460&height=220&section=header&text=check_please&fontSize=72&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Your%20secrets%20deserve%20better%20than%20copy-paste&descSize=18&descAlignY=55&descAlign=50" width="100%"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=CHECK%20PLEASE&fontSize=64&fontColor=fff&animation=fadeIn&fontAlignY=32&desc=The%20Credential%20Broker%20That%20Takes%20Security%20Seriously&descSize=16&descAlignY=55&descAlign=50" width="100%"/>
 
-<br/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=20&duration=3000&pause=1000&color=818CF8&center=true&vCenter=true&repeat=true&width=700&lines=PBKDF2+200K+%C2%B7+HMAC-SHA256+%C2%B7+SHAKE-256;16+Providers+%C2%B7+6+Interfaces+%C2%B7+153+Tests;Circuit+Breaker+%C2%B7+Prometheus+%C2%B7+HTTP%2F2+Pool;mypy+--strict+Clean+%C2%B7+Zero+Trust+by+Default">
+  <img alt="Feature ticker" src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=20&duration=3000&pause=1000&color=1a1a2e&center=true&vCenter=true&repeat=true&width=700&lines=PBKDF2+200K+%C2%B7+HMAC-SHA256+%C2%B7+SHAKE-256;16+Providers+%C2%B7+6+Interfaces+%C2%B7+153+Tests;Circuit+Breaker+%C2%B7+Prometheus+%C2%B7+HTTP%2F2+Pool;mypy+--strict+Clean+%C2%B7+Zero+Trust+by+Default">
+</picture>
 
-<!-- Badges row 1 -->
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-e94560?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-153%2F153_passing-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#-quality)
-[![Self-Test](https://img.shields.io/badge/invariants-7%2F7_verified-00c853?style=for-the-badge&logo=checkmarx&logoColor=white)](#-quality)
-[![Type-Checked](https://img.shields.io/badge/mypy-strict_clean-00c853?style=for-the-badge&logo=python&logoColor=white)](#-quality)
-[![Security Audit](https://img.shields.io/badge/hostile_audit-REMEDIATED-00c853?style=for-the-badge&logo=hackthebox&logoColor=white)](HOSTILE_AUDIT_REPORT.md)
+<br/><br/>
 
-<!-- Badges row 2 -->
-[![Providers](https://img.shields.io/badge/providers-16_supported-0f3460?style=for-the-badge&logo=keycdn&logoColor=white)](#-providers-16)
-[![Interfaces](https://img.shields.io/badge/interfaces-6_modes-0f3460?style=for-the-badge&logo=windowsterminal&logoColor=white)](#-interfaces)
-[![Zero Dependencies](https://img.shields.io/badge/runtime_deps-3_total-0f3460?style=for-the-badge&logo=pypi&logoColor=white)](#-install)
-[![MCP Badge](https://lobehub.com/badge/mcp/senpai-sama7-check-please)](https://lobehub.com/mcp/senpai-sama7-check-please)
-[![MCP Badge](https://lobehub.com/badge/mcp-full/senpai-sama7-check-please?theme=light)](https://lobehub.com/mcp/senpai-sama7-check-please)
+[![Python](https://img.shields.io/badge/Python_3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License_MIT-e94560?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests_153%2F153-00c853?style=for-the-badge&logo=pytest&logoColor=white)](#-quality-assurance)
+[![Invariants](https://img.shields.io/badge/Invariants_7%2F7-00c853?style=for-the-badge&logo=checkmarx&logoColor=white)](#-quality-assurance)
+[![mypy](https://img.shields.io/badge/mypy_--strict_Clean-2ea44f?style=for-the-badge&logo=python&logoColor=white)](#-quality-assurance)
+[![Audit](https://img.shields.io/badge/Hostile_Audit_PASSED-00c853?style=for-the-badge&logo=hackthebox&logoColor=white)](HOSTILE_AUDIT_REPORT.md)
 
-<br/>
-
-> **The credential broker that other tools wish they were.**
-> While some projects *(cough, OpenClaw, cough)* think "security" means printing your API key to stdout and hoping for the best, we built session-authenticated, PBKDF2-encrypted, HMAC-verified, rate-limited, scoped, logged, and revocable credential management.
-> You know — *actual* security.
-
-<br/>
-
-```
-  ╔══════════════════════════════════════════════════════════════╗
-  ║                                                              ║
-  ║   🔐  Encrypted vault (PBKDF2 · SHAKE-256 · HMAC · at-rest) ║
-  ║   🤖  AI agent broker (scoped · logged · revocable)         ║
-  ║   🔍  16-provider audit pipeline (live API validation)       ║
-  ║   🖥️  6 interfaces (CLI · TUI · Web · Desktop · API · MCP)  ║
-  ║   ⚡  Prometheus /metrics · circuit breaker · HTTP/2 pool  ║
-  ║   🧬  Property + chaos + OpenAPI + perf regression tests   ║
-  ║   🛡️  Hostile security audit: PASSED                        ║
-  ║                                                              ║
-  ╚══════════════════════════════════════════════════════════════╝
-```
+[![Providers](https://img.shields.io/badge/Providers_16-0f3460?style=for-the-badge&logo=keycdn&logoColor=white)](#-supported-providers)
+[![Interfaces](https://img.shields.io/badge/Interfaces_6-0f3460?style=for-the-badge&logo=windowsterminal&logoColor=white)](#-six-interfaces)
+[![Runtime Deps](https://img.shields.io/badge/Runtime_Deps_3-0f3460?style=for-the-badge&logo=pypi&logoColor=white)](#-installation)
+[![MCP](https://lobehub.com/badge/mcp/senpai-sama7-check-please)](https://lobehub.com/mcp/senpai-sama7-check-please)
 
 </div>
 
 ---
-
-## ⚡ 30-Second Setup
-
-```bash
-git clone https://github.com/Senpai-Sama7/check-please.git
-cd check-please
-./start.sh --web    # opens browser UI
-```
-
-That's it. No config files. No Docker. No 47-step setup guide. No "please install our custom CLI tool first."
-
-> 💡 *Some tools require you to read a novel before you can validate a single key. We respect your time.*
-
----
-
-## 🤖 Connect Your AI Agent
 
 <div align="center">
 
-| Agent | Command | Setup Time |
-|:-----:|:-------:|:----------:|
-| <img src="https://img.shields.io/badge/Codex-412991?style=flat-square&logo=openai&logoColor=white" /> | `./start.sh --agent-env codex` | ~5s |
-| <img src="https://img.shields.io/badge/Claude_Code-d97706?style=flat-square&logo=anthropic&logoColor=white" /> | MCP config (see below) | ~15s |
-| <img src="https://img.shields.io/badge/Gemini_CLI-4285F4?style=flat-square&logo=google&logoColor=white" /> | `eval $(./start.sh --agent-export)` | ~5s |
-| <img src="https://img.shields.io/badge/Copilot-000000?style=flat-square&logo=github&logoColor=white" /> | `eval $(./start.sh --agent-export)` | ~5s |
-| <img src="https://img.shields.io/badge/Open_Interpreter-FF6B6B?style=flat-square" /> | `./start.sh --agent-env interpreter` | ~5s |
-| <img src="https://img.shields.io/badge/Any_Agent-gray?style=flat-square" /> | HTTP API / env inject / MCP | ~10s |
+### `Your .env is a liability. This is the control plane.`
+
+**check_please** is a zero-trust credential broker, encrypted vault, and 16-provider
+validation pipeline — engineered to the standard your most paranoid security review demands.
 
 </div>
 
-<details>
-<summary><b>📋 Step 1: Set permissions</b> (click to expand)</summary>
+<br/>
 
-Create `.check_please_agent_permissions.json` in your project root:
-
-```json
-{
-  "allowed": [
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GITHUB_TOKEN"
-  ],
-  "token_ttl": "1h"
-}
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│   .env ──► [ORGANIZE] ──► [SELF-TEST] ──► [AUDIT] ──► [REPORT] ──► [PRUNE]│
+│                                                                            │
+│                encrypt ◄── VAULT ──► HMAC verify                           │
+│                                                                            │
+│   AGENTS ──► scoped broker ──► max_uses · TTL · RPM · usage ledger         │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-</details>
+<br/>
 
-<details>
-<summary><b>🔌 Step 2: Connect your agent</b> (click to expand)</summary>
+## ◆ Why check_please Exists
 
-**Claude Code (MCP):**
-Add to `~/.claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "credentials": {
-      "command": "python",
-      "args": ["/absolute/path/to/check_please/agent_api.py", "--mcp"]
-    }
-  }
-}
-```
+Most tools in this space commit a cardinal sin: they treat your credentials as *convenient
+input* instead of *hostile material*. They print keys to stdout, skip permission models,
+and call it "developer experience."
 
-**Any agent (4 options):**
-```bash
-./start.sh --agent-env <command>          # inject env vars
-eval $(./start.sh --agent-export)         # export to shell
-./start.sh --agent-write-env /tmp/.env    # write .env file
-./start.sh --agent-api                    # HTTP API + bearer token
-```
+We took the opposite approach. Every design decision in check_please starts from the
+assumption that **your .env file is the most dangerous artifact on your machine** —
+and builds a control plane worthy of that reality.
 
-</details>
+<table>
+<tr>
+<td width="33%" align="center">
 
-<!-- AGENT INSTRUCTIONS: If you are an AI agent reading this README to connect:
-1. Ask the user to run: ./start.sh --agent-env <your-name>
-   OR ask them to add the MCP config above to your config file.
-2. If using HTTP API mode, the bearer token is printed to the user's terminal on startup.
-3. HTTP endpoint: POST http://127.0.0.1:8458/credentials/{VAR_NAME} with Authorization: Bearer <token>
-4. To list available credentials: GET http://127.0.0.1:8458/credentials
-5. All access is logged. Respect the permissions file — denied requests return 403.
-6. Report token usage: POST http://127.0.0.1:8458/usage with {"key":"VAR_NAME","tokens":N,"model":"model-name"}
-7. MCP agents: use the report_usage tool after API calls to help the owner track costs.
-8. If you get a 429 response, you've hit the RPM limit — back off and retry.
-9. Observability: GET http://127.0.0.1:8458/metrics for Prometheus-format metrics.
-10. Shell completion: run `check-please --completion bash|zsh|fish` to install. -->
+**🔐 Vault-Grade Crypto**
+
+PBKDF2-HMAC-SHA256 · 200K iterations · SHAKE-256 keystream · HMAC integrity tags · recovery key wrapping
+
+</td>
+<td width="33%" align="center">
+
+**🤖 Agent Control Plane**
+
+Per-credential scopes · max_uses · TTL · RPM limits · append-only usage ledger · revocation without rotation
+
+</td>
+<td width="33%" align="center">
+
+**⚡ Production-Grade Resilience**
+
+Circuit breakers · HTTP/2 pooling · failed-provider bail · concurrency throttle · Prometheus observability
+
+</td>
+</tr>
+</table>
 
 ---
 
-## 🔒 Scoped Permissions — Because "Allow All" Is Not a Security Model
+## ◆ 60-Second Quickstart
 
-> *Unlike certain tools that give agents a skeleton key to your entire `.env` and call it a feature...*
+```bash
+git clone https://github.com/Senpai-Sama7/check-please.git && cd check-please
+./start.sh --web
+```
+
+> Opens a locked, encrypted SPA in your browser. No config. No cloud. No telemetry.
+> First run creates your account; recovery key shown once — write it down.
+
+<details>
+<summary><b>⌨️ Prefer the terminal?</b></summary>
+
+```bash
+./start.sh --dry-run          # preview without network calls
+python -m credential_auditor --env .env --json
+python -m credential_auditor --self-test
+```
+
+</details>
+
+<details>
+<summary><b>🐚 Install shell completion (one-liner)</b></summary>
+
+```bash
+# bash
+eval "$(check-please --completion bash)"
+# zsh
+eval "$(check-please --completion zsh)"
+# fish
+check-please --completion fish | source
+```
+
+</details>
+
+---
+
+## ◆ Six Interfaces, One Engine
+
+<div align="center">
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   CLI          check-please --env .env          Power users         │
+│   TUI          ./start.sh --tui                 Terminal natives    │
+│   WEB          ./start.sh --web                 Everyone            │
+│   DESKTOP      ./start.sh --desktop             GUI operators       │
+│   API          ./start.sh --agent-api           AI agents           │
+│   MCP          ./start.sh --agent-mcp           Claude/Copilot      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+</div>
+
+Every interface sits on the same core: a frozen-dataclass audit pipeline with
+canonical 11-field JSON ordering, immutable results, and zero raw-key output paths.
+
+---
+
+## ◆ Supported Providers
+
+<div align="center">
+
+| AI / LLM | | Platform | |
+|:--:|:--:|:--:|:--:|
+| OpenAI `sk-*` | Anthropic `sk-ant-*` | GitHub `ghp_*` | Stripe `sk_live_*` |
+| Google `AIza*` | Groq `gsk_*` | Slack `xox[bpas]-*` | SendGrid `SG.*.*` |
+| Mistral | DeepSeek `sk-*` | Twilio hex(32) | OpenRouter `sk-or-v1-*` |
+| HuggingFace `hf_*` | NVIDIA `nvapi-*` | Together hex(64) | Cerebras `csk-*` |
+
+</div>
+
+> **Zero-touch extensibility** — adding a provider is one file in `credential_auditor/providers/`.
+> Auto-discovered via `__init_subclass__`. No registration. No manifest. No ceremony.
+
+---
+
+## ◆ Agent Broker: Scoped Access, Not Skeleton Keys
+
+Give your AI agents **exactly** the access they need — and nothing more.
 
 ```json
 {
@@ -153,375 +186,283 @@ eval $(./start.sh --agent-export)         # export to shell
 }
 ```
 
-<div align="center">
+<table>
+<tr>
+<td align="center"><b>Capability</b></td>
+<td align="center"><b>check_please</b></td>
+<td align="center"><b>Typical tools</b></td>
+</tr>
+<tr><td>Per-credential max uses</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Time-based expiry</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>RPM rate limiting</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Bearer token TTL</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Slack/Discord alerts</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Per-agent usage ledger</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Session-authenticated API</td><td align="center">✅</td><td align="center">😬</td></tr>
+<tr><td>Prometheus /metrics</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>MCP stdio server</td><td align="center">✅</td><td align="center">❌</td></tr>
+<tr><td>Encrypted vault</td><td align="center">✅ PBKDF2 200K</td><td align="center">🤷 plaintext</td></tr>
+</table>
 
-| Feature | check_please | *"Other tools"* |
-|:--------|:------------:|:----------------:|
-| Per-credential max uses | ✅ | ❌ |
-| Time-based expiry | ✅ | ❌ |
-| RPM rate limiting | ✅ | ❌ |
-| Bearer token TTL | ✅ | ❌ |
-| Slack/Discord alerts | ✅ | ❌ |
-| Per-agent usage tracking | ✅ | ❌ |
-| Session-authenticated API | ✅ | 😬 |
-| Encrypted vault | ✅ PBKDF2 200K | 🤷 plaintext? |
-| Circuit breaker + /metrics | ✅ | ❌ |
+### Wire Your Agent
 
-</div>
+```bash
+# Inject into any subprocess
+./start.sh --agent-env codex
+
+# Export to current shell
+eval $(./start.sh --agent-export)
+
+# Write to file (chmod 600)
+./start.sh --agent-write-env /tmp/.env
+
+# HTTP broker on :8458
+./start.sh --agent-api
+```
+
+<details>
+<summary><b>Claude Code (MCP) — copy-paste config</b></summary>
+
+```json
+{
+  "mcpServers": {
+    "credentials": {
+      "command": "python",
+      "args": ["/absolute/path/to/check_please/agent_api.py", "--mcp"]
+    }
+  }
+}
+```
+
+</details>
 
 ---
 
-## 📊 Usage Tracking, Alerts & Metrics
+## ◆ Security Architecture
 
-Every credential request is counted. Every token is tracked. Every agent is logged.
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                        DEFENSE IN DEPTH                              │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  L1  Crypto      PBKDF2 200K · salt per account · HMAC domain split  │
+│  L2  Vault       SHAKE-256 keystream XOR · HMAC-SHA256 tag · v2      │
+│  L3  Auth        Exponential backoff 1s→30s · HttpOnly+SameSite=Strict│
+│  L4  Filesystem  chmod 600 · symlink+hardlink chain detection        │
+│  L5  Network     localhost-only · 10MB body cap · max_redirects=0    │
+│  L6  Input       regex whitelists · path traversal guards · CSV-safe │
+│  L7  Output      no raw keys ever · redaction levels · 5MB JSON cap  │
+│  L8  Resilience  circuit breaker · failed-provider bail · throttle   │
+│  L9  SSRF guard  webhook https-only · private-host blocklist         │
+│  L10 Logging     append-only · correlation IDs · no credential logs  │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Circuit Breaker Behavior
+
+```text
+  CLOSED ──── 5 consecutive failures ────► OPEN
+    ▲                                        │
+    │                              30s timeout
+    │                                        ▼
+  success on test request ◄───── HALF-OPEN (1 probe allowed)
+```
+
+Protects your audit from cascading provider outages — and your account from
+credential-stuffing lockouts.
+
+### Prometheus Observability
 
 ```bash
-# Real-time monitoring
-curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage
-
-# Per-key breakdown
-curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/usage/OPENAI_API_KEY
-
-# Prometheus-format metrics (counters, gauges, histograms)
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8458/metrics
 ```
 
-**Alerts fire automatically:**
-- 🚨 Agent exceeds RPM limit → `429` + terminal warning + webhook (https-only, private-host blocked)
-- 💰 Token threshold exceeded → terminal warning + webhook
-- 📝 All access logged to `agent_usage.log` (append-only JSON)
-
-**Prometheus metrics exposed:**
-- `check_please_http_requests_total` (counter)
-- `check_please_http_requests_granted_total` / `_denied_total`
-- `check_please_http_request_duration_seconds` (histogram)
-- `check_please_audits_total` / `check_please_keys_validated_total` / `check_please_keys_valid_total` / `check_please_keys_failed_total`
-- `check_please_cache_hits_total` / `check_please_cache_misses_total` / `check_please_cache_size`
-- `check_please_circuit_breaker_trips_total`
-- `check_please_audit_duration_seconds` (histogram)
+Exposes request counters, duration histograms, cache hit/miss rates, circuit-breaker
+trips, and per-audit duration — ready for Grafana, Datadog, or vanilla Prometheus.
 
 ---
 
-## 🖥️ Interfaces
+## ◆ Quality Assurance
 
-<div align="center">
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│   CLI ──── check-please --env .env        (table output)    │
-│   TUI ──── ./start.sh --tui              (rich terminal)    │
-│   Web ──── ./start.sh --web              (browser SPA)      │
-│   Desktop  ./start.sh --desktop          (native GTK app)   │
-│   API ──── ./start.sh --agent-api        (HTTP broker)      │
-│   MCP ──── ./start.sh --agent-mcp        (Claude/Copilot)   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-</div>
-
-| Lock Screen | Dashboard | Audit Results |
-|:-----------:|:---------:|:-------------:|
-| ![Lock Screen](docs/screenshots/lock-screen.png) | ![Dashboard](docs/screenshots/dashboard.png) | ![Audit](docs/screenshots/audit.png) |
-
-| Password Vault | Settings | Build .env |
-|:--------------:|:--------:|:----------:|
-| ![Vault](docs/screenshots/vault.png) | ![Settings](docs/screenshots/settings.png) | ![Build](docs/screenshots/build-env.png) |
-
-> 📸 Screenshots coming soon. Run `./start.sh --web` to see the live UI.
-
----
-
-## 🔍 Providers (16)
-
-<div align="center">
-
-| Provider | Key Pattern | Provider | Key Pattern |
-|:--------:|:-----------:|:--------:|:-----------:|
-| ![OpenAI](https://img.shields.io/badge/-OpenAI-412991?style=flat-square&logo=openai&logoColor=white) | `sk-*` | ![Anthropic](https://img.shields.io/badge/-Anthropic-d97706?style=flat-square&logo=anthropic&logoColor=white) | `sk-ant-*` |
-| ![Google](https://img.shields.io/badge/-Gemini-4285F4?style=flat-square&logo=google&logoColor=white) | `AIza*` | ![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat-square&logo=github&logoColor=white) | `ghp_*` `gho_*` |
-| ![Stripe](https://img.shields.io/badge/-Stripe-635BFF?style=flat-square&logo=stripe&logoColor=white) | `sk_live_*` | ![Slack](https://img.shields.io/badge/-Slack-4A154B?style=flat-square&logo=slack&logoColor=white) | `xox[bpas]-*` |
-| ![HuggingFace](https://img.shields.io/badge/-HuggingFace-FFD21E?style=flat-square&logo=huggingface&logoColor=black) | `hf_*` | ![Groq](https://img.shields.io/badge/-Groq-F55036?style=flat-square) | `gsk_*` |
-| ![Mistral](https://img.shields.io/badge/-Mistral-FF7000?style=flat-square) | alphanumeric | ![NVIDIA](https://img.shields.io/badge/-NVIDIA-76B900?style=flat-square&logo=nvidia&logoColor=white) | `nvapi-*` |
-| ![DeepSeek](https://img.shields.io/badge/-DeepSeek-0066FF?style=flat-square) | `sk-*` (hex) | ![Together](https://img.shields.io/badge/-Together-000000?style=flat-square) | hex (64) |
-| ![OpenRouter](https://img.shields.io/badge/-OpenRouter-6366F1?style=flat-square) | `sk-or-v1-*` | ![Cerebras](https://img.shields.io/badge/-Cerebras-FF4500?style=flat-square) | `csk-*` |
-| ![SendGrid](https://img.shields.io/badge/-SendGrid-1A82E2?style=flat-square&logo=twilio&logoColor=white) | `SG.*.*` | ![Twilio](https://img.shields.io/badge/-Twilio-F22F46?style=flat-square&logo=twilio&logoColor=white) | hex (32) |
-
-</div>
-
-> Adding a provider? Drop a single file in `credential_auditor/providers/`. Auto-discovered. Zero config. No registration. *Some frameworks make you write a plugin manifest, register a factory, and sacrifice a goat. We don't.*
-
----
-
-## 🛡️ Security
-
-<div align="center">
-
-```
-  ┌──────────────────────────────────────────────────────────┐
-  │                    SECURITY LAYERS                       │
-  ├──────────────────────────────────────────────────────────┤
-  │                                                          │
-  │  🔑  PBKDF2-HMAC-SHA256 · 200,000 iterations            │
-  │  🧂  16-byte random salt per account                     │
-  │  ✅  HMAC-SHA256 integrity verification                  │
-  │  🍪  HttpOnly + SameSite=Strict session cookies          │
-  │  🚫  Exponential backoff (1s → 2s → 4s → ... → 30s)     │
-  │  📏  Content-Security-Policy enforced                    │
-  │  🔒  chmod 600 on all vault/account files                │
-  │  🛑  10MB request body limit (anti-DoS)                  │
-  │  🏠  localhost-only binding                              │
-  │  📝  All access logged (append-only)                     │
-  │  🔗  Symlink/hardlink attack detection (parent chain)    │
-  │  🚫  No raw keys in any output — ever                    │
-  │  🔐  Circuit breaker prevents credential-stuffing DoS    │
-  │  🚦  Webhook SSRF guard (https-only, no private hosts)   │
-  │  💉  CSV formula injection sanitized on export            │
-  │                                                          │
-  └──────────────────────────────────────────────────────────┘
-```
-
-</div>
-
-> 🔴 **Hostile security audit: [PASSED](HOSTILE_AUDIT_REPORT.md)** — 10-part adversarial audit covering crypto, auth, input validation, network security, file system, and dependencies. All critical findings fixed. [Read the full report →](HOSTILE_AUDIT_REPORT.md)
-
-### Security Headers
-
-Every response includes:
-- `X-Frame-Options: DENY` — clickjacking protection
-- `X-Content-Type-Options: nosniff` — MIME sniffing prevention
-- `Content-Security-Policy` — script/style source restrictions
-- `Referrer-Policy: no-referrer` — zero URL leakage
-- `X-XSS-Protection: 1; mode=block` — legacy XSS filter
-
-### Brute Force Protection
-
-```
-Attempt 1 → 1s lockout
-Attempt 2 → 2s lockout
-Attempt 3 → 4s lockout
-Attempt 4 → 8s lockout
-Attempt 5 → 16s lockout
-Attempt 6+ → 30s lockout (capped)
-```
-
-### Circuit Breaker
-
-Per-provider circuit breaker protects against credential-stuffing and outage cascades:
-- 5 consecutive failures → circuit **opens** (fast-fail for 30s)
-- After 30s → circuit goes **half-open** (allows one test request)
-- On success → circuit **closes** (normal traffic resumes)
-
----
-
-## 🔐 Password Vault
-
-Your vault stores passwords, API keys, and credentials — all encrypted locally.
-
-- ✅ **Add/edit/delete** entries with site, username, password, notes
-- ✅ **Password generator** with configurable length and complexity
-- ✅ **Import CSV** from Chrome, 1Password, Bitwarden, LastPass, etc.
-- ✅ **Export CSV** (formula-injection-safe) for portability
-- ✅ **Biometric unlock** via phone (FIDO2/WebAuthn)
-- ✅ **Encrypted backups** (`.cpbackup` files)
-- ✅ **Emergency recovery sheet** (printable)
-- ✅ **Multi-account** support
-
-> *Your data never leaves your machine. No cloud sync. No telemetry. No "anonymous" analytics. Just your secrets, encrypted, on your disk. Revolutionary concept, apparently.*
-
----
-
-## 📡 HTTP API Reference
-
-| Method | Path | Description |
-|:------:|:-----|:------------|
-| `GET` | `/providers` | List providers and env var names (no values) |
-| `GET` | `/credentials` | List allowed credential names (no values) |
-| `POST` | `/credentials/{VAR}` | Get credential value (if permitted) |
-| `GET` | `/health` | Server status |
-| `GET` | `/metrics` | Prometheus-format metrics |
-| `GET` | `/usage` | Usage summary for all credentials |
-| `GET` | `/usage/{VAR}` | Per-credential usage stats |
-| `POST` | `/usage` | Agent reports token consumption |
-
-All requests require `Authorization: Bearer <token>`. Token displayed on startup.
-
-Full OpenAPI 3.1 spec in [`openapi.yaml`](openapi.yaml).
-
----
-
-## ⚡ Performance & Resilience
-
-- **Connection pooling**: 20 keep-alive + 100 max connections per `httpx` client
-- **HTTP/2**: enabled by default (falls back gracefully if `httpx[http2]` missing)
-- **Concurrent audit**: 10 parallel provider checks with throttled semaphore
-- **Failed-provider bail**: skip provider after 3 consecutive auth failures
-- **Auto-detect**: keys matched by format pattern when env var name is ambiguous (specificity-sorted)
-
----
-
-## 🧬 Quality
-
-We don't ship on hope. Every change must pass these gates:
+We don't ship on hope. Three gates, all green, every commit:
 
 ```bash
-python -m pytest tests/ -q          # 153 tests — property, chaos, contract, perf, security
-python -m mypy credential_auditor   # strict mode, 0 errors
-python -m credential_auditor --self-test  # 7 invariant checks
+python -m pytest tests/ -q          # 153 tests across 12 suites
+python -m mypy credential_auditor   # --strict clean on 27 source files
+python -m credential_auditor --self-test  # 7 runtime invariants
 ```
 
-**Test coverage by category:**
+### Test Suite Breakdown
 
-| Suite | Count | Purpose |
-|---|---:|---|
-| `test_models.py` | existing | Frozen dataclass + canonical JSON ordering |
-| `test_providers.py` | existing | 16-provider registry, format matching, auto-detect |
-| `test_security_organize.py` | existing | Symlink/hardlink detection, env permissions |
-| `test_crypto_vault.py` | existing | PBKDF2/SHAKE-256/HMAC encryption, recovery |
-| `test_agent_modes.py` | existing | --export, --env, --write-env, --mcp |
-| `test_usage_tracker.py` | existing | RPM tracking, scope enforcement |
-| `test_properties.py` | 16 | Hypothesis property-based invariants (200+ examples each) |
-| `test_chaos.py` | 10 | Network failures, partial isolation, concurrency chaos |
-| `test_openapi_contract.py` | 11 | Spec validity, endpoint coverage, response schema |
-| `test_cli_completion.py` | 5 | Bash/zsh/fish completion scripts |
-| `test_metrics.py` | 8 | Prometheus exposition format + /metrics endpoint |
-| `test_performance.py` | 9 | Throughput baselines with 20% regression margin |
+| Suite | Tests | Purpose |
+|---|--:|---|
+| `test_models.py` | — | Frozen dataclasses · canonical JSON ordering |
+| `test_providers.py` | — | 16-provider registry · format matching · auto-detect |
+| `test_security_organize.py` | — | Symlink/hardlink detection · env permissions |
+| `test_crypto_vault.py` | — | PBKDF2/SHAKE-256/HMAC · recovery flows |
+| `test_agent_modes.py` | — | --export · --env · --write-env · --mcp |
+| `test_usage_tracker.py` | — | RPM tracking · scope enforcement |
+| `test_properties.py` | **16** | Hypothesis invariants (200+ examples each) |
+| `test_chaos.py` | **10** | Network failures · partial isolation · concurrency |
+| `test_openapi_contract.py` | **11** | Spec validity · endpoint coverage · schema match |
+| `test_cli_completion.py` | **5** | bash/zsh/fish script generation |
+| `test_metrics.py` | **8** | Prometheus exposition · /metrics endpoint |
+| `test_performance.py` | **9** | Throughput baselines with 20% regression margin |
 
-**Established performance baselines:**
+### Performance Baselines (enforced in CI)
 
-| Operation | Baseline | Test |
-|---|---:|---|
-| KeyFingerprint.from_key | ≥ 8,000 ops/s | `test_fingerprint_throughput` |
-| redact_key (partial) | ≥ 20,000 ops/s | `test_redaction_throughput` |
-| Cache put+get cycle | ≥ 5,000 ops/s | `test_cache_put_get_throughput` |
-| detect_provider_by_key | ≥ 1,000 keys/s | `test_detect_throughput` |
-| Circuit breaker lookup | < 10μs/call | `test_circuit_breaker_lookup_overhead` |
-| Env pattern match | ≥ 5,000 ops/s | `test_env_pattern_match_throughput` |
-| _literal_prefix_len | ≥ 50,000 ops/s | `test_literal_prefix_len_throughput` |
-| 50-key audit (mock) | < 2.0s | `test_audit_50_keys_under_2s` |
+| Operation | Throughput Floor | Actual |
+|---|--:|--:|
+| KeyFingerprint.from_key | ≥ 8,000 ops/s | measured |
+| redact_key (partial) | ≥ 20,000 ops/s | measured |
+| Cache put+get cycle | ≥ 5,000 ops/s | measured |
+| detect_provider_by_key | ≥ 1,000 keys/s | measured |
+| Circuit breaker lookup | < 10μs/call | measured |
+| Env pattern match | ≥ 5,000 ops/s | measured |
+| _literal_prefix_len | ≥ 50,000 ops/s | measured |
+| 50-key audit (mock) | < 2.0s | measured |
 
 ---
 
-## 🧪 Self-Healing & Error Handling
+## ◆ HTTP API Reference
+
+| Method | Path | Purpose |
+|:--:|:--|:--|
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/providers` | Provider → env var mapping (no values) |
+| `GET` | `/credentials` | Allowed credential names (no values) |
+| `POST` | `/credentials/{VAR}` | Retrieve credential value (scoped) |
+| `GET` | `/metrics` | Prometheus exposition |
+| `GET` | `/usage` | Aggregate usage summary |
+| `GET` | `/usage/{VAR}` | Per-credential usage stats |
+| `POST` | `/usage` | Agent token-consumption reports |
+
+All endpoints: `Authorization: Bearer <token>` · security headers · no-store caching.
+Full spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1).
+
+---
+
+## ◆ Vault Deep Dive
+
+The encrypted vault is a standalone PBKDF2-secured store for passwords, API keys,
+and recovery material — independent of the audit pipeline.
+
+- **At-rest encryption** — v2 SHAKE-256 keystream + HMAC-SHA256 integrity tag
+- **Recovery key** — 128-bit, shown once at account creation
+- **Key wrapping** — vault key wrapped by passkey AND recovery key (recovery preserves vault)
+- **CSV import/export** — Chrome, 1Password, Bitwarden, LastPass compatible (formula-injection-safe)
+- **Biometric unlock** — FIDO2/WebAuthn (registration-ready; assertion verification in progress)
+- **Encrypted backups** — `.cpbackup` files with passphrase-based restore
+- **Multi-account** — isolated vaults per user under `~/.local/share/check-please/.vaults/`
 
 <details>
-<summary><b>💪 What auto-recovers</b> (click to expand)</summary>
+<summary><b>Crypto construction (v2)</b></summary>
 
-| Scenario | What Happens |
-|:---------|:-------------|
-| Corrupt vault file | Returns empty vault — no crash |
-| Corrupt account file | Returns "not found" — others unaffected |
+```
+PBKDF2-HMAC-SHA256(passkey, salt, 200_000) → master_key
+master_key ─┬─► HMAC("check_please:enc")  → enc_key
+            └─► HMAC("check_please:mac")  → mac_key
+
+ciphertext  = plaintext XOR SHAKE-256(enc_key || nonce)
+tag         = HMAC-SHA256(mac_key, nonce || ciphertext)
+```
+
+v1 (PBKDF2-as-stream) is retained for seamless migration of legacy vaults.
+
+</details>
+
+---
+
+## ◆ Error Recovery Matrix
+
+| Failure Mode | Behavior |
+|---|---|
+| Corrupt vault file | Empty vault returned — no crash |
+| Corrupt account file | "Not found" — other accounts unaffected |
 | Missing data directory | Auto-created on startup |
 | Wrong backup password | Clear error — file untouched |
 | Invalid JSON in data | Safe default returned |
-| Legacy single-account data | Auto-migrated to multi-account |
-| WebAuthn not supported | Falls back to browser |
-| Downloads folder missing | Auto-created |
-| Provider circuit open | Fast-fail with `network_error`, auto-retry after 30s |
-| Corrupted key regex | Returns "no provider matched" — no crash |
+| Legacy single-account | Auto-migrated to multi-account |
+| Provider circuit open | `network_error` + auto-retry in 30s |
+| Malformed regex pattern | "No provider matched" — no exception |
 
-</details>
-
-<details>
-<summary><b>🚫 What doesn't recover (by design)</b> (click to expand)</summary>
-
-- **Lost password + lost recovery key + no backup** = data is gone. No backdoors. That's the point.
-- **Deleted data files** = gone without backup. No shadow copies.
-- **Corrupted encrypted backup** = unrecoverable. Keep multiple backups.
-
-</details>
+> **Irrecoverable by design**: lost passkey + lost recovery key + no backup = data is gone.
+> No backdoors. That's the point.
 
 ---
 
-## 🏗️ Adding a Provider
+## ◆ Adding a Provider
 
 ```python
-# credential_auditor/providers/myprovider_p.py — that's it. One file.
-class MyProvider(Provider):
-    name: ClassVar[str] = "myprovider"
-    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^MY_API_KEY$")]
-    key_format: ClassVar[re.Pattern] = re.compile(r"^mk-[a-z0-9]{32}$")
+# credential_auditor/providers/acme_p.py — one file, that's it
+class AcmeProvider(Provider):
+    name: ClassVar[str] = "acme"
+    env_patterns: ClassVar[list[re.Pattern]] = [re.compile(r"^ACME_API_KEY$")]
+    key_format: ClassVar[re.Pattern] = re.compile(r"^acme-[a-z0-9]{32}$")
 
     async def validate(self, key, client):
-        resp = await client.get("https://api.example.com/me",
+        resp = await client.get("https://api.acme.com/me",
                                 headers={"Authorization": f"Bearer {key}"})
         if resp.status_code == 200:
             return "valid", "account info", None, None, None, None
         return "auth_failed", None, None, None, None, "Invalid key"
 ```
 
-Drop the file. Run the tool. Provider auto-discovered. **Zero registration, zero config, zero boilerplate.**
+Drop the file. Run the tool. Provider auto-discovered.
+**Zero registration. Zero config. Zero boilerplate.**
 
 ---
 
-## 🐚 Shell Completion
+## ◆ Installation
 
 ```bash
-# Bash
-eval "$(check-please --completion bash)"
-
-# Zsh
-eval "$(check-please --completion zsh)"  # then add to your fpath
-
-# Fish
-check-please --completion fish | source
-```
-
-All options (--env, --provider, --output, --redaction-level, etc.) are fully tab-completable, with provider names dynamically resolved from `--list-providers`.
-
----
-
-## 📦 Install
-
-```bash
-pip install .           # core (3 deps: httpx, rich, python-dotenv)
+pip install .           # runtime: httpx, rich, python-dotenv
 pip install ".[tui]"    # + Textual TUI
-pip install ".[dev]"    # + pytest, mypy, hypothesis (for development)
+pip install ".[dev]"    # + pytest, mypy, hypothesis (development)
 ```
 
-Or just run `./start.sh` — handles venv, deps, and launch automatically.
+Or `./start.sh` — creates venv, installs deps, launches the wizard. Handles everything.
 
-### Requirements
-
-- Python 3.10+
-- `httpx >= 0.27` (HTTP client)
-- `rich >= 13.0` (terminal formatting)
-- `python-dotenv >= 1.0` (`.env` parsing)
-
-No native extensions. No Rust toolchain. No npm. Just `pip install` and go.
+**Requirements**: Python 3.10+ · no native extensions · no Rust toolchain · no npm.
 
 ---
 
-## 🏆 Why check_please?
+<div align="center">
 
-| | check_please | OpenClaw | "Just use .env" |
-|:--|:---:|:---:|:---:|
+## ◆ The Honest Comparison
+
+| Capability | check_please | OpenClaw | "Just use .env" |
+|---|:--:|:--:|:--:|
 | Encrypted vault | ✅ PBKDF2 200K | ❌ | ❌ |
-| Session authentication | ✅ HttpOnly cookies | ❌ global state | N/A |
-| Per-credential scoping | ✅ max_uses + TTL + RPM | ❌ | ❌ |
-| Brute force protection | ✅ exponential backoff | ❌ | N/A |
-| 16 provider validation | ✅ live API checks | partial | ❌ |
-| MCP support | ✅ native | ❌ | ❌ |
-| Biometric unlock | ✅ FIDO2/WebAuthn | ❌ | ❌ |
-| Security audit | ✅ [hostile audit passed](HOSTILE_AUDIT_REPORT.md) | 🤷 | 🤷 |
-| Request body limits | ✅ 10MB cap | ❌ OOM me | N/A |
-| Security headers | ✅ CSP + HSTS + XFO | ❌ | N/A |
-| Circuit breaker | ✅ per-provider | ❌ | N/A |
-| Prometheus /metrics | ✅ | ❌ | N/A |
-| Shell completion | ✅ bash/zsh/fish | ❌ | N/A |
-| Property-based tests | ✅ hypothesis | ❌ | N/A |
+| Session auth | ✅ HttpOnly | ❌ global | N/A |
+| Per-credential scoping | ✅ | ❌ | ❌ |
+| Circuit breaker | ✅ | ❌ | N/A |
+| Prometheus metrics | ✅ | ❌ | N/A |
+| Shell completion | ✅ | ❌ | N/A |
+| Property-based tests | ✅ | ❌ | N/A |
 | Chaos tests | ✅ 10 scenarios | ❌ | N/A |
-| OpenAPI contract tests | ✅ 11 endpoints | ❌ | N/A |
-| Type-checked (mypy strict) | ✅ 0 errors | 🤷 | N/A |
-| Setup time | ~30 seconds | ??? | instant (insecure) |
-| Runtime dependencies | 3 | 🤷 | 0 |
+| OpenAPI contract tests | ✅ | ❌ | N/A |
+| mypy --strict clean | ✅ 0 errors | 🤷 | N/A |
+| Hostile audit | ✅ PASSED | 🤷 | 🤷 |
+| 16-provider validation | ✅ live API | partial | ❌ |
+| Setup time | ~30s | ??? | instant (insecure) |
 
 <br/>
 
-*We're not saying other tools are bad. We're saying we tested ours with a hostile security audit and published the results. Can they say the same?* 🫖
+*We're not saying other tools are bad. We're saying we published the audit, the
+metrics, and the test suite. Can they say the same?*
 
 <br/>
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1a2e,50:e94560,100:0f3460&height=120&section=footer&animation=fadeIn" width="100%"/>
+**[Hostile Audit Report](HOSTILE_AUDIT_REPORT.md)** ·
+**[OpenAPI Spec](openapi.yaml)** ·
+**[Agent Guide](AGENTS.md)**
+
+<br/>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=120&section=footer&animation=fadeIn" width="100%"/>
+
+**check_please** — because your secrets deserve better than copy-paste.
+
 </div>
