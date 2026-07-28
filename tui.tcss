@@ -187,6 +187,39 @@ TabPane {
     margin: 1 0;
 }
 
+/* ── Report Toolbar (search/filter/export) ──────────────────────────────── */
+
+#report-toolbar {
+    height: auto;
+    padding: 1 2 0 2;
+    align: center middle;
+}
+
+#report-search {
+    width: 2fr;
+    margin: 0 1;
+}
+
+#report-filter {
+    width: 20;
+    margin: 0 1;
+}
+
+/* ── Metrics Screen ─────────────────────────────────────────────────────── */
+
+#metrics-row {
+    height: auto;
+    padding: 0 2;
+    align: center middle;
+    padding-top: 1;
+}
+
+#circuit-table, #health-table, #activity-table {
+    margin: 1 2;
+    max-height: 12;
+    background: #1a1b26;
+}
+
 /* ── Help Screen ─────────────────────────────────────────────────────────── */
 
 #help-content {

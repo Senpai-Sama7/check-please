@@ -85,7 +85,7 @@ class Provider(ABC):
         start = time.monotonic()
         try:
             status, account, scopes, rate_limit, usage, error = await self.validate(key, client)
-        except (httpx.HTTPError, OSError, Exception) as exc:
+        except Exception as exc:
             latency = (time.monotonic() - start) * 1000
             return KeyResult(
                 provider=self.name, env_var=env_var, key_fingerprint=fingerprint,

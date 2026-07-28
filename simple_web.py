@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -598,6 +598,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <a onclick="go('vault')" data-page="vault"><span class="icon">🔐</span> Password Vault <span class="badge" id="vault-count">0</span></a>
     <div class="sep"></div>
     <a onclick="go('providers')" data-page="providers"><span class="icon">🌐</span> Providers</a>
+    <a onclick="go('metrics')" data-page="metrics"><span class="icon">📈</span> Metrics</a>
     <a onclick="go('settings')" data-page="settings"><span class="icon">⚙️</span> Settings</a>
   </nav>
   <div class="bottom"><a onclick="logout()" style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;color:var(--text3);font-size:.8125rem;cursor:pointer;text-decoration:none;transition:all .2s" onmouseover="this.style.color='var(--red)';this.style.background='var(--red-bg)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'"><span class="icon">🚪</span> Log Out</a><div class="ver" style="margin-top:8px">v1.1.1 · Local Only · Encrypted</div></div>
@@ -608,6 +609,7 @@ tr:hover td{background:rgba(129,140,248,.04)}
 <div class="topbar">
   <h1 id="page-title">Dashboard</h1>
   <div class="actions">
+    <button class="btn sm" onclick="openPalette()" title="Command palette (Ctrl+K)">⌘K</button>
     <button class="btn sm" onclick="go('vault');openAddModal()">+ Add Password</button>
     <button class="btn primary sm" onclick="go('audit');runAudit()">Run Audit</button>
   </div>
@@ -728,6 +730,28 @@ tr:hover td{background:rgba(129,140,248,.04)}
     <div class="panel-header"><div><h2>Supported Providers</h2><div class="sub">16 services with live API validation</div></div></div>
     <div class="loader" id="prov-loader"><div class="spinner"></div><div class="msg">Loading…</div></div>
     <div id="prov-list"></div>
+  </div>
+</div>
+
+<!-- Metrics -->
+<div class="page" id="page-metrics">
+  <div class="grid cols-2" style="margin-bottom:20px">
+    <div class="panel">
+      <div class="panel-header"><div><h2>Cache</h2><div class="sub">In-memory cache for repeated key checks</div></div><button class="btn sm" onclick="purgeCache()">Purge Expired</button></div>
+      <div id="metrics-cache">Loading…</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div><h2>Circuit Breakers</h2><div class="sub">Per-provider failure thresholds</div></div></div>
+      <div id="metrics-circuits">Loading…</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><div><h2>Recent Activity</h2><div class="sub">Last 50 audit log events (newest first)</div></div><button class="btn sm" onclick="loadActivity()">Refresh</button></div>
+    <div id="metrics-activity">Loading…</div>
+  </div>
+  <div class="panel" style="margin-top:20px">
+    <div class="panel-header"><div><h2>Prometheus /metrics</h2><div class="sub">Scrape endpoint: GET <code>/api/metrics</code></div></div></div>
+    <pre id="metrics-prom" style="background:var(--void);padding:14px;border-radius:8px;font-family:var(--font-mono);font-size:.75rem;color:var(--text2);max-height:300px;overflow:auto;white-space:pre-wrap">Loading…</pre>
   </div>
 </div>
 
@@ -882,11 +906,117 @@ function go(page){
   document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.remove('active'));
   const el=E('page-'+page);if(el)el.classList.add('active');
   const nav=document.querySelector(`[data-page="${page}"]`);if(nav)nav.classList.add('active');
-  const titles={dashboard:'DASHBOARD',audit:'CREDENTIAL AUDIT',vault:'PASSWORD VAULT',providers:'PROVIDERS',settings:'SETTINGS'};
+  const titles={dashboard:'DASHBOARD',audit:'CREDENTIAL AUDIT',vault:'PASSWORD VAULT',providers:'PROVIDERS',metrics:'METRICS & TELEMETRY',settings:'SETTINGS'};
   E('page-title').textContent=titles[page]||page;
   if(page==='vault')renderVault();
   if(page==='providers'&&!E('prov-list').innerHTML)loadProviders();
+  if(page==='metrics')loadMetrics();
 }
+
+// ── Metrics page ──
+async function loadMetrics(){
+  E('metrics-cache').textContent='Loading…';
+  E('metrics-circuits').textContent='Loading…';
+  E('metrics-activity').textContent='Loading…';
+  E('metrics-prom').textContent='Loading…';
+  const [cacheR,circuitR,actR,promR]=await Promise.all([
+    api('/api/stats'),
+    api('/api/stats'),
+    api('/api/activity'),
+    api('/api/metrics'),
+  ]);
+  // Cache
+  if(cacheR&&cacheR.cache&&!cacheR.cache.error){
+    const c=cacheR.cache;
+    E('metrics-cache').innerHTML=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;font-size:.875rem">
+      <div><div style="color:var(--text3);font-size:.75rem">Size</div><div style="font-size:1.4rem;font-weight:600">${esc(c.size||0)} <span style="font-size:.75rem;color:var(--text3)">/ ${esc(c.max_size||0)}</span></div></div>
+      <div><div style="color:var(--text3);font-size:.75rem">Hit Rate</div><div style="font-size:1.4rem;font-weight:600">${esc(((c.hit_rate||0)*100).toFixed(1))}%</div></div>
+      <div><div style="color:var(--text3);font-size:.75rem">Hits</div><div style="font-size:1.2rem;font-weight:600;color:var(--green)">${esc(c.hits||0)}</div></div>
+      <div><div style="color:var(--text3);font-size:.75rem">Misses</div><div style="font-size:1.2rem;font-weight:600;color:var(--text2)">${esc(c.misses||0)}</div></div>
+    </div>`;
+  } else {
+    E('metrics-cache').textContent='Cache metrics unavailable';
+  }
+  // Circuits
+  if(circuitR&&circuitR.circuits){
+    const rows=circuitR.circuits.map(c=>`<tr><td>${esc(c.provider)}</td><td><span class="status-badge status-${esc(c.state)}">${esc(c.state)}</span></td><td>${esc(c.failures||0)}/3</td></tr>`).join('');
+    E('metrics-circuits').innerHTML=`<table style="width:100%;font-size:.8125rem"><thead><tr style="color:var(--text3);text-align:left"><th style="padding:4px 0">Provider</th><th>State</th><th>Failures</th></tr></thead><tbody>${rows||'<tr><td colspan=3 style="text-align:center;color:var(--text3);padding:12px">No data</td></tr>'}</tbody></table>`;
+  } else {
+    E('metrics-circuits').textContent='Circuit data unavailable';
+  }
+  // Activity
+  if(actR&&actR.events){
+    const rows=actR.events.slice(0,50).map(e=>{
+      const t=(e.ts||e.timestamp||'').replace('T',' ').slice(0,19);
+      return `<tr><td style="font-family:var(--font-mono);color:var(--text3);font-size:.7rem;white-space:nowrap">${esc(t)}</td><td style="font-size:.75rem">${esc(e.event||e.kind||'')}</td><td style="font-size:.75rem;color:var(--text2)">${esc(e.provider||e.cid||'')}</td><td style="font-size:.75rem;color:var(--text2)">${esc(e.status||'')}</td></tr>`;
+    }).join('');
+    E('metrics-activity').innerHTML=`<table style="width:100%"><thead><tr style="color:var(--text3);text-align:left;font-size:.7rem"><th>Time</th><th>Event</th><th>Provider</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan=4 style="text-align:center;color:var(--text3);padding:12px">No activity</td></tr>'}</tbody></table>`;
+  } else {
+    E('metrics-activity').textContent='Activity log unavailable';
+  }
+  // Prometheus
+  E('metrics-prom').textContent=promR&&promR.output?promR.output:'# (no metrics yet — run an audit)';
+}
+async function loadActivity(){return loadMetrics();}
+async function purgeCache(){
+  const r=await api('/api/cache/purge',{method:'POST'});
+  if(r&&r.ok){toast('Cache purged','success');loadMetrics();}else{toast('Purge failed','error');}
+}
+
+// ── Command palette (Ctrl+K) ──
+const PALETTE_COMMANDS=[
+  {name:'Go to Dashboard',short:'g d',fn:()=>go('dashboard')},
+  {name:'Go to Audit',short:'g a',fn:()=>go('audit')},
+  {name:'Go to Vault',short:'g v',fn:()=>go('vault')},
+  {name:'Go to Providers',short:'g p',fn:()=>go('providers')},
+  {name:'Go to Metrics',short:'g m',fn:()=>go('metrics')},
+  {name:'Go to Settings',short:'g s',fn:()=>go('settings')},
+  {name:'Run Audit',short:'r a',fn:runAudit},
+  {name:'Self Test',short:'r t',fn:runSelfTest},
+  {name:'Add Password',short:'a p',fn:()=>{go('vault');openAddModal();}},
+  {name:'Lock Vault',short:'l',fn:()=>{fetch('/api/account/logout',{method:'POST'}).then(()=>location.reload());}},
+  {name:'Stop Server',short:'q',fn:()=>{if(confirm('Stop the server?'))fetch('/stop');}},
+  {name:'Show Shortcuts',short:'?',fn:()=>toast('Press Ctrl+K to open command palette anytime','info')},
+];
+let paletteIdx=0,paletteVisible=false;
+function openPalette(){
+  if(paletteVisible)return;
+  paletteVisible=true;
+  const ov=document.createElement('div');ov.id='palette-overlay';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh';
+  ov.innerHTML=`<div style="background:var(--surface);border:1px solid var(--glass-border);border-radius:12px;width:90%;max-width:520px;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden">
+    <input id="palette-input" placeholder="Type a command…" style="width:100%;padding:14px 18px;background:transparent;border:0;border-bottom:1px solid var(--glass-border);color:var(--text);font-size:.95rem;outline:0" autofocus>
+    <div id="palette-list" style="max-height:40vh;overflow-y:auto"></div>
+  </div>`;
+  ov.addEventListener('click',e=>{if(e.target===ov)closePalette();});
+  document.body.appendChild(ov);
+  E('palette-input').addEventListener('input',renderPalette);
+  E('palette-input').addEventListener('keydown',e=>{
+    if(e.key==='Escape'){closePalette();e.preventDefault();}
+    else if(e.key==='Enter'){PALETTE_COMMANDS[paletteIdx].fn();closePalette();e.preventDefault();}
+    else if(e.key==='ArrowDown'){paletteIdx=Math.min(paletteIdx+1,PALETTE_COMMANDS.length-1);renderPalette();e.preventDefault();}
+    else if(e.key==='ArrowUp'){paletteIdx=Math.max(paletteIdx-1,0);renderPalette();e.preventDefault();}
+  });
+  paletteIdx=0;renderPalette();E('palette-input').focus();
+}
+function closePalette(){const o=E('palette-overlay');if(o)o.remove();paletteVisible=false;}
+function renderPalette(){
+  const q=(E('palette-input').value||'').toLowerCase();
+  const filtered=PALETTE_COMMANDS.filter(c=>c.name.toLowerCase().includes(q));
+  paletteIdx=Math.max(0,Math.min(paletteIdx,filtered.length-1));
+  E('palette-list').innerHTML=filtered.map((c,i)=>`<div data-idx="${i}" style="padding:10px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:${i===paletteIdx?'var(--accent-bg)':'transparent'};border-left:3px solid ${i===paletteIdx?'var(--glow)':'transparent'}" onclick="PALETTE_COMMANDS[${PALETTE_COMMANDS.indexOf(c)}].fn();closePalette()" onmouseover="paletteIdx=${i};renderPalette()"><span>${esc(c.name)}</span><span style="font-family:var(--font-mono);font-size:.7rem;color:var(--text3)">${esc(c.short)}</span></div>`).join('')||'<div style="padding:18px;text-align:center;color:var(--text3)">No matches</div>';
+}
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette();}
+});
+// Vim-style shortcuts: g then letter
+let gPressed=0;
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(gPressed){gPressed=0;const k=e.key.toLowerCase();const m={d:'dashboard',a:'audit',v:'vault',p:'providers',m:'metrics',s:'settings'};if(m[k]){go(m[k]);e.preventDefault();}return;}
+  if(e.key.toLowerCase()==='g')gPressed=Date.now();
+  else if(Date.now()-gPressed>1000)gPressed=0;
+  if(e.key==='?'){e.preventDefault();toast('Shortcuts: Ctrl+K palette · g+d dashboard · g+a audit · g+v vault · g+m metrics','info');}
+});
 
 // ── Toast ──
 function toast(msg,type='info'){const d=document.createElement('div');d.className='toast '+type;d.textContent=msg;E('toasts').appendChild(d);setTimeout(()=>d.remove(),4000);}
@@ -1164,6 +1294,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-XSS-Protection", "1; mode=block")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'")
 
     def _check_session(self) -> bool:
@@ -1197,10 +1328,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self._sec_headers()
         if getattr(self, "_pending_session_cookie", None):
-            self.send_header("Set-Cookie", f"session={self._pending_session_cookie}; HttpOnly; SameSite=Strict; Path=/")
+            self.send_header("Set-Cookie", f"session={self._pending_session_cookie}; HttpOnly; Secure; SameSite=Strict; Path=/")
             self._pending_session_cookie = None
         if getattr(self, "_pending_clear_session", False):
-            self.send_header("Set-Cookie", "session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+            self.send_header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0")
             self._pending_clear_session = False
         self.end_headers()
         self.wfile.write(body)
@@ -1252,7 +1383,8 @@ class Handler(BaseHTTPRequestHandler):
     # Endpoints that don't require a session
     _PUBLIC_PATHS = {"/", "/api/account/create", "/api/account/verify", "/api/account/recover",
                      "/api/account/status", "/api/account/users", "/api/webauthn/auth-challenge",
-                     "/api/webauthn/auth", "/api/vault/strength"}
+                     "/api/webauthn/auth", "/api/vault/strength", "/api/metrics", "/api/stats",
+                     "/api/activity"}
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
@@ -1275,6 +1407,64 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(json.loads(r.stdout))
             except json.JSONDecodeError:
                 self._json({"error": r.stderr or r.stdout or "Audit failed"})
+        elif path == "/api/metrics":
+            try:
+                from credential_auditor.metrics import render_metrics
+                body = render_metrics()
+            except Exception as exc:
+                body = f"# error: {exc}\n"
+            self.send_response(200)
+            self._sec_headers()
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            payload = body.encode("utf-8") if isinstance(body, str) else body
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        elif path == "/api/activity":
+            log_path = DATA_DIR / "audit.log"
+            events: list[dict] = []
+            if log_path.is_file():
+                try:
+                    lines = log_path.read_text(errors="replace").splitlines()[-200:]
+                    for line in reversed(lines):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            events.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+                except OSError:
+                    pass
+            self._json({"events": events, "count": len(events)})
+        elif path == "/api/stats":
+            cache_info: dict = {}
+            circuits: list[dict] = []
+            try:
+                sys.path.insert(0, str(DIR))
+                from credential_auditor.orchestrator import get_cache, _get_circuit_state
+                cache = get_cache()
+                s = cache.stats
+                cache_info = {
+                    "size": len(cache._store),
+                    "max_size": cache.max_size,
+                    "hits": s.hits,
+                    "misses": s.misses,
+                    "hit_rate": round(s.hit_rate, 3),
+                }
+            except Exception as exc:
+                cache_info = {"error": str(exc)}
+            try:
+                from credential_auditor.providers import Provider
+                for name in sorted(Provider.get_registry().keys()):
+                    try:
+                        state = _get_circuit_state(name)
+                    except Exception:
+                        state = "closed"
+                    circuits.append({"provider": name, "state": state, "failures": 0})
+            except Exception as exc:
+                pass
+            self._json({"cache": cache_info, "circuits": circuits})
         elif path == "/api/preview":
             env = DATA_DIR / ".env"
             if not env.is_file():
@@ -1471,6 +1661,15 @@ class Handler(BaseHTTPRequestHandler):
             _clear_session()
             self._clear_session_cookie()
             self._json({"ok": True})
+        elif path == "/api/cache/purge":
+            try:
+                from credential_auditor.orchestrator import get_cache
+                cache = get_cache()
+                if hasattr(cache, "purge_expired"):
+                    cache.purge_expired()
+                self._json({"ok": True})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
         elif path == "/api/account/change-passkey":
             try:
                 data = json.loads(body)
@@ -1765,7 +1964,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             wanted = set(data.get("vars", []))
-            groups: dict[str, list[str]] = data.get("groups", {})  # provider->vars
+            groups = data.get("groups", {})  # type: dict[str, list[str]]
             env_path = DATA_DIR / ".env"
             existing: dict[str, str] = {}
             if env_path.is_file():
@@ -1798,7 +1997,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Invalid JSON"}, 400)
                 return
             wanted = set(data.get("vars", []))
-            groups: dict[str, list[str]] = data.get("groups", {})
+            groups = data.get("groups", {})  # type: dict[str, list[str]]
             template = data.get("template", False)
             env_path = DATA_DIR / ".env"
             existing: dict[str, str] = {}
@@ -1858,7 +2057,7 @@ class Handler(BaseHTTPRequestHandler):
 def run(port: int = PORT) -> int:
     from http.server import ThreadingHTTPServer
 
-    server = ThreadingHTTPServer(("localhost", port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     url = f"http://localhost:{port}"
     print(f"\n  🌐 Check Please — Web Interface")

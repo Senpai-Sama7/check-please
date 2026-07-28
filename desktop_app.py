@@ -1,11 +1,15 @@
 """Native desktop app — embeds the web UI in a real OS window via pywebview."""
 from __future__ import annotations
 
+import json
+import os
 import sys
 import threading
 import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+
+__version__ = "1.1.1"
 
 
 def _bind_free_server(handler_cls, preferred: int, attempts: int = 20):
@@ -24,6 +28,51 @@ def _bind_free_server(handler_cls, preferred: int, attempts: int = 20):
     )
 
 
+def _window_state_path() -> Path:
+    """Path to the persistent window state JSON file."""
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "check-please"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return Path.home() / ".check_please_window.json"
+    return base / "window.json"
+
+
+def _load_window_state() -> dict:
+    """Load persisted window geometry; return safe defaults on any failure."""
+    p = _window_state_path()
+    if not p.is_file():
+        return {"width": 1100, "height": 800, "x": None, "y": None}
+    try:
+        data = json.loads(p.read_text())
+        if not isinstance(data, dict):
+            return {"width": 1100, "height": 800, "x": None, "y": None}
+        # Validate
+        w = int(data.get("width", 1100))
+        h = int(data.get("height", 800))
+        if w < 800 or h < 600 or w > 7680 or h > 4320:
+            w, h = 1100, 800
+        x = data.get("x")
+        y = data.get("y")
+        x = int(x) if isinstance(x, (int, float)) else None
+        y = int(y) if isinstance(y, (int, float)) else None
+        return {"width": w, "height": h, "x": x, "y": y}
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"width": 1100, "height": 800, "x": None, "y": None}
+
+
+def _save_window_state(state: dict) -> None:
+    """Persist window geometry; swallow any error to avoid exit noise."""
+    try:
+        _window_state_path().write_text(json.dumps(state))
+        try:
+            os.chmod(_window_state_path(), 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
+
+
 def main() -> int:
     try:
         import webview
@@ -34,7 +83,11 @@ def main() -> int:
     # Import the web server
     app_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(app_dir))
-    from simple_web import Handler, PORT
+    try:
+        from simple_web import Handler, PORT
+    except ImportError as exc:
+        print(f"Cannot import web server: {exc}", file=sys.stderr)
+        return 1
 
     # Bind server with retry to avoid port race
     try:
@@ -58,18 +111,49 @@ def main() -> int:
         except Exception:
             time.sleep(0.1)
 
+    # Load persisted window geometry
+    state = _load_window_state()
+    win_kwargs: dict = {
+        "title": f"Check Please v{__version__}",
+        "url": url,
+        "width": state["width"],
+        "height": state["height"],
+        "min_size": (800, 600),
+    }
+    if state["x"] is not None and state["y"] is not None:
+        try:
+            win_kwargs["x"] = int(state["x"])
+            win_kwargs["y"] = int(state["y"])
+        except (TypeError, ValueError):
+            pass
+
     # Launch native window
-    webview.create_window(
-        "Check Please",
-        url,
-        width=1100,
-        height=800,
-        min_size=(800, 600),
-    )
+    window = webview.create_window(**win_kwargs)
+
+    def _persist_geometry():
+        try:
+            new_state = {
+                "width": int(window.width),
+                "height": int(window.height),
+                "x": int(window.x) if window.x is not None else None,
+                "y": int(window.y) if window.y is not None else None,
+            }
+            _save_window_state(new_state)
+        except Exception:
+            pass
+
+    # Persist on close (some platforms)
+    if window is not None:
+        try:
+            window.events.closing += _persist_geometry  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
     try:
         webview.start(gui="gtk")
     except Exception:
         webview.start()
+    _persist_geometry()
     server.shutdown()
     return 0
 

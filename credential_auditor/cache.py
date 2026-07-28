@@ -7,6 +7,7 @@ Prevents redundant API calls on repeated audit runs.
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -44,36 +45,41 @@ class ValidationCache:
         self.max_size = max_size
         self._store: dict[str, tuple[KeyResult, float]] = {}
         self.stats = CacheStats()
+        self._lock = threading.Lock()
 
     def get(self, provider: str, key: str) -> Optional[KeyResult]:
         ck = _cache_key(provider, key)
-        entry = self._store.get(ck)
-        if entry and (time.monotonic() - entry[1]) < self.ttl:
-            self.stats.hits += 1
-            return entry[0]
-        if entry:
-            del self._store[ck]
-        self.stats.misses += 1
-        return None
+        with self._lock:
+            entry = self._store.get(ck)
+            if entry and (time.monotonic() - entry[1]) < self.ttl:
+                self.stats.hits += 1
+                return entry[0]
+            if entry:
+                del self._store[ck]
+            self.stats.misses += 1
+            return None
 
     def put(self, provider: str, key: str, result: KeyResult) -> None:
-        if len(self._store) >= self.max_size:
-            # Evict oldest entry
-            oldest = min(self._store, key=lambda k: self._store[k][1])
-            del self._store[oldest]
-        self._store[_cache_key(provider, key)] = (result, time.monotonic())
+        with self._lock:
+            if len(self._store) >= self.max_size:
+                oldest = min(self._store, key=lambda k: self._store[k][1])
+                del self._store[oldest]
+            self._store[_cache_key(provider, key)] = (result, time.monotonic())
 
     def clear(self) -> None:
-        self._store.clear()
-        self.stats = CacheStats()
+        with self._lock:
+            self._store.clear()
+            self.stats = CacheStats()
 
     def __len__(self) -> int:
-        return len(self._store)
+        with self._lock:
+            return len(self._store)
 
     def purge_expired(self) -> int:
         """Remove expired entries, return count purged."""
         now = time.monotonic()
-        expired = [k for k, (_, ts) in self._store.items() if (now - ts) >= self.ttl]
-        for k in expired:
-            del self._store[k]
-        return len(expired)
+        with self._lock:
+            expired = [k for k, (_, ts) in self._store.items() if (now - ts) >= self.ttl]
+            for k in expired:
+                del self._store[k]
+            return len(expired)
